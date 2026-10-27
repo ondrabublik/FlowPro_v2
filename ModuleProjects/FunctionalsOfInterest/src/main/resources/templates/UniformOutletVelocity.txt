@@ -1,0 +1,5 @@
+functionalOfInterest = 'UniformOutletVelocity'
+numberOfAlpha = 
+
+uOut = 
+c = 

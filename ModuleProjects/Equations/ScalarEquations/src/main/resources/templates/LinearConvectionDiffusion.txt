@@ -1,0 +1,10 @@
+model = LinearConvectionDiffusion
+
+dimension = 
+
+%%% 
+a =     % convection vector
+k =     % diffusion coeficient
+
+%%% inlet
+Uin = 

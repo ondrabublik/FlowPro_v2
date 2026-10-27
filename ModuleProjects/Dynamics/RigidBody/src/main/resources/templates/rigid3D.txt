@@ -1,0 +1,17 @@
+dynamicsModel = 'Rigid3D'
+meshDeformationType = 'Rigid3D'
+
+%tKick = % dimensionalless time of kinematic motion (default is inf)
+
+%rotationCenters = % coordinates of gravity centers
+
+%M =        % mass matrixes
+%B =        % damping matrixes
+%K =        % stiffness matrixes
+
+%xMotion =          % kinematic motion in x direction
+%yMotion =          % kinematic motion in y direction
+%zMotion =          % kinematic motion in z direction
+%alphaMotion =      % kinematic motion in alpha direction
+%betaMotion =       % kinematic motion in beta direction
+%gammaMotion =      % kinematic motion in gamma direction

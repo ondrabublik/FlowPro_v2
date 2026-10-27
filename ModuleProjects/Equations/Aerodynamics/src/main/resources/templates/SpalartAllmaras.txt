@@ -1,0 +1,50 @@
+model = SpalartAllmaras
+
+dimension = 
+
+%%% either kappa, or cp and cv must be defined 
+%cp =         % heat capacity at constant pressure
+cv =         % heat capacity at constant volume
+kappa =    % heat capacity ratio
+
+isFlowViscous =   % true / false
+%%% for viscous flow (isFlowViscous = true) either reynolds and prandtl, 
+%%% or viscosity and conductivity must be defined
+reynolds =        % Reynolds number
+prandtl = 0.72    % Prandtl number
+%viscosity =      % dynamic viscosity
+%conductivity =   % thermal conductivity
+
+%%% inlet
+isInletSupersonic =   % true / false
+%attackAngle =    % angle of attack
+%%% subsonic inlet boundary condition (isInletSupersonic = false)
+pIn0 =     % inlet stagnation pressure
+rhoIn0 =   % inlet stagnation density
+%TIn0 =    % inlet stagnation temperature (can be defined instead of rhoIn0)
+vtIn =     % turbulence at the inlet
+
+%%% supersonic inlet boundary condition (isInletSupersonic = true)
+pIn =     % inlet pressure
+rhoIn =   % inlet density
+%TIn =    % inlet temperature (can be defined instead of rhoIn)
+vIn =     % inlet velocity
+
+%%% outlet
+pOut =        % outlet pressure
+%machInf =    % Mach number of undisturbed flow (can be defined instead of pOut)
+
+%%% turbulence model constant
+sigma = 0.6667
+cb1 = 0.1355
+cb2 = 0.622
+ka = 0.41
+cw2 = 0.3
+cw3 = 2
+cv1 = 7.1
+ct1 = 1
+ct2 = 2
+ct3 = 1.2
+ct4 = 0.5
+Prt = 0.9
+C_prod = 2

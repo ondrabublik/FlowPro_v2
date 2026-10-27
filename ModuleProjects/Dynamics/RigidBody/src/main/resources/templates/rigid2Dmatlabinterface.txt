@@ -1,0 +1,2 @@
+dynamicsModel = 'Rigid2DMatlabInterface'
+meshDeformationType = 'Rigid2D'

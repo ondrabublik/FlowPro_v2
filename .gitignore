@@ -1,0 +1,54 @@
+# --- build and IDE ---------------------------------------------------------
+build/
+.gradle/
+.nb-gradle/
+.nb-gradle-properties
+.idea/
+*.class
+*.tmp
+__pycache__/
+hs_err_pid*.log
+log.out*
+
+# jars built by gradle and copied next to FlowPro.jar
+/FlowPro/FlowPro.jar
+/FlowPro/FlowPro.zip
+/FlowPro/FlowProManager.jar
+/FlowPro/FlowProControl.jar
+/FlowPro/MeshGenerator2D.jar
+/FlowPro/modules/
+
+# --- local configuration ----------------------------------------------------
+/FlowPro/args.txt
+/FlowPro/fetcherState.txt
+/FlowPro/network/
+/FlowPro/certificate/
+/FlowPro/metacentrum/
+/FlowPro/tasks/
+/FlowPro/matlab/pclist.txt
+/FlowPro/matlab/flowProPath.txt
+
+# --- simulations: only the examples (mesh + parameters) are versioned -------
+/FlowPro/simulations/*
+!/FlowPro/simulations/examples/
+/FlowPro/simulations/examples/**/W.txt
+/FlowPro/simulations/examples/**/We.txt
+/FlowPro/simulations/examples/**/state.txt
+/FlowPro/simulations/examples/**/residuum.txt
+/FlowPro/simulations/examples/**/referenceValues.txt
+/FlowPro/simulations/examples/**/artificialViscosity.txt
+/FlowPro/simulations/examples/**/PXY.txt
+/FlowPro/simulations/examples/**/UXY.txt
+/FlowPro/simulations/examples/**/part.txt
+/FlowPro/simulations/examples/**/STOP
+/FlowPro/simulations/examples/**/output/
+/FlowPro/simulations/examples/**/animation/
+/FlowPro/simulations/examples/GAMMgenerated/mesh/wallDistance.txt
+
+# binaries and MATLAB data which were not versioned in the original FlowPro
+# repository (files already in the repository are not affected)
+/FlowPro/*.jar
+/FlowPro/**/*.mat
+/FlowPro/matlab/**/*.txt
+/FlowPro/toolbox/solverManager/sims.txt
+/FlowProManager/nbproject/

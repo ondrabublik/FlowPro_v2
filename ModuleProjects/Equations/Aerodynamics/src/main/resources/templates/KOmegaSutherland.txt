@@ -1,0 +1,47 @@
+model = KOmegaSutherland
+
+dimension = 
+
+%%% either kappa, or cp and cv must be defined 
+%cp =         % heat capacity at constant pressure
+cv =         % heat capacity at constant volume
+kappa =    % heat capacity ratio
+
+isFlowViscous =   % true / false
+%%% for viscous flow (isFlowViscous = true) either reynolds and prandtl, 
+%%% or viscosity and conductivity must be defined
+reynolds =        % Reynolds number
+prandtl = 0.72    % Prandtl number
+%viscosity =      % dynamic viscosity
+%conductivity =   % thermal conductivity
+
+% Sutherland constant
+SuthConst = 
+
+%%% inlet
+isInletSupersonic =   % true / false
+%attackAngle =    % angle of attack
+%%% subsonic inlet boundary condition (isInletSupersonic = false)
+pIn0 =     % inlet stagnation pressure
+rhoIn0 =   % inlet stagnation density
+%TIn0 =    % inlet stagnation temperature (can be defined instead of rhoIn0)
+kIn =     % turbulence at the inlet
+omIn =     % turbulence at the inlet
+
+%%% supersonic inlet boundary condition (isInletSupersonic = true)
+pIn =     % inlet pressure
+rhoIn =   % inlet density
+%TIn =    % inlet temperature (can be defined instead of rhoIn)
+vIn =     % inlet velocity
+
+%%% outlet
+pOut =        % outlet pressure
+%machInf =    % Mach number of undisturbed flow (can be defined instead of pOut)
+
+%%% turbulence model constant
+bk = 0.09
+bom = 0.0708
+aom = 0.52
+Prt = 0.9
+sk = 0.6
+som = 0.5

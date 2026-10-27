@@ -1,0 +1,2 @@
+functionalOfInterest = 'LiftCoefficient'
+numberOfAlpha = 

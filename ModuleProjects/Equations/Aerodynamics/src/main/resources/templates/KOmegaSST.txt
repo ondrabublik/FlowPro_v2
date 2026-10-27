@@ -1,0 +1,51 @@
+model = KOmegaSST
+
+dimension = 
+
+%%% either kappa, or cp and cv must be defined 
+%cp =         % heat capacity at constant pressure
+cv =         % heat capacity at constant volume
+kappa =    % heat capacity ratio
+
+isFlowViscous =   % true / false
+%%% for viscous flow (isFlowViscous = true) either reynolds and prandtl, 
+%%% or viscosity and conductivity must be defined
+reynolds =        % Reynolds number
+prandtl = 0.72    % Prandtl number
+%viscosity =      % dynamic viscosity
+%conductivity =   % thermal conductivity
+
+%%% inlet
+isInletSupersonic =   % true / false
+%attackAngle =    % angle of attack
+%%% subsonic inlet boundary condition (isInletSupersonic = false)
+pIn0 =     % inlet stagnation pressure
+rhoIn0 =   % inlet stagnation density
+%TIn0 =    % inlet stagnation temperature (can be defined instead of rhoIn0)
+kIn = 23.05    % turbulence at the inlet
+omIn = 0.84    % turbulence at the inlet
+
+%%% supersonic inlet boundary condition (isInletSupersonic = true)
+pIn =     % inlet pressure
+rhoIn =   % inlet density
+%TIn =    % inlet temperature (can be defined instead of rhoIn)
+vIn =     % inlet velocity
+
+%%% outlet
+pOut =        % outlet pressure
+%machInf =    % Mach number of undisturbed flow (can be defined instead of pOut)
+
+SuthConst = 110
+
+%%% turbulence model constant
+a1 = 0.31
+sk1 = 0.85
+som1 = 0.5
+alpha1 = 0.5532
+beta1 = 0.075
+betast = 0.09
+sk2 = 1.0
+som2 = 0.856
+alpha2 = 0.4404
+beta2 = 0.0828
+Prt = 0.9

@@ -1,0 +1,17 @@
+model = ShallowWater
+
+dimension = 
+
+%tEnd =   % physical time at which the computatin is to be terminated
+
+%%% inlet
+isInletSupersonic =   % true / false
+attackAngle =    % angle of attack
+%%% subsonic inlet boundary condition (isInletSupersonic = false)
+VIn =     % inlet velocity
+
+%%% supersonic inlet boundary condition (isInletSupersonic = true)
+hIn =     % inlet level
+
+%%% outlet
+hOut =        % outlet level

@@ -1,0 +1,19 @@
+dynamicsModel = 'Rigid2D'
+meshDeformationType = 'Rigid2D'
+
+%zLength = % length in z direction
+%tKick = % dimensionalless time of kinematic motion (default is inf)
+
+%rotationCenters = % coordinates of gravity centers
+
+%M =        % mass matrixes
+%B =        % damping matrixes
+%K =        % stiffness matrixes
+
+%xMotion =          % kinematic motion in x direction
+%yMotion =          % kinematic motion in y direction
+%alphaMotion =      % kinematic motion in alpha direction
+
+%xExternForceInTime =          % time force in x direction
+%yExternForceInTime =          % time force in y direction
+%alphaExternForceInTime =      % time force in alpha direction

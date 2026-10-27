@@ -1,0 +1,18 @@
+rootProject.name = 'FlowProPackage'
+
+include 'FlowPro', 'FlowProAPI', 'FlowProManager'
+
+// standalone GUI tools
+include 'MeshGenerator2D', 'FlowProControl'
+project(':MeshGenerator2D').projectDir = new File(rootDir, 'Tools/MeshGenerator2D')
+project(':FlowProControl').projectDir = new File(rootDir, 'Tools/FlowProControl')
+
+def File modelProjectDir = new File("${rootDir}/ModuleProjects")
+
+modelProjectDir.eachDirRecurse () {file ->
+    if (file.isDirectory() & new File(file, 'build.gradle').isFile()) {
+        def projectName = ":$file.name"
+        include projectName
+        project(projectName).projectDir = file
+    }
+}

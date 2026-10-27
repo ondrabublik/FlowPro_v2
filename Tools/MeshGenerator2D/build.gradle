@@ -1,0 +1,11 @@
+// Standalone Swing application generating 2D unstructured triangular meshes
+// in the FlowPro format. It has no dependencies.
+//
+//   java -jar MeshGenerator2D.jar                         (GUI)
+//   java -jar MeshGenerator2D.jar --batch geometry.geo2d outputDir   (no GUI)
+
+jar {
+    manifest {
+        attributes('Main-Class': 'flowpro.mesher.MeshGeneratorApp')
+    }
+}

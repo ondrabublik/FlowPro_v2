@@ -1,0 +1,15 @@
+dynamicsModel = 'Elastic2D'
+meshDeformationType = 'Elastic2D'
+
+%zLength = % length in z direction
+%tKick = % dimensionalless time of kinematic motion (default is inf)
+
+%rotationCenters = % coordinates of gravity centers
+
+%M =        % mass matrixes
+%B =        % damping matrixes
+%K =        % stiffness matrixes
+
+%xMotion =          % kinematic motion in x direction
+%yMotion =          % kinematic motion in y direction
+%alphaMotion =      % kinematic motion in alpha direction

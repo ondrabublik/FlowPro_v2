@@ -1,0 +1,6 @@
+model = WaveEquation
+
+dimension = 
+
+%%% parameters
+c =     % wave speed

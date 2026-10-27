@@ -1,0 +1,86 @@
+buildscript {
+    repositories {
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+plugins {
+    id 'application'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+application {
+    mainClass = 'flowpro.core.FlowProMain'
+}
+
+run {
+    args = ['master', '0']
+}
+
+def mainClassName = 'flowpro.core.FlowProMain'
+
+
+if (!hasProperty('mainClass')) {
+    ext.mainClass = mainClassName
+}
+
+repositories {
+    mavenCentral()
+    gradlePluginPortal()
+}
+
+dependencies {
+    // log4j 1.2.17 is no longer maintained and has known vulnerabilities,
+    // reload4j is its maintained drop-in replacement
+    implementation fileTree(dir: 'lib', include: ['*.jar'], exclude: ['log4j-1.2.17.jar'])
+    implementation 'ch.qos.reload4j:reload4j:1.2.25'
+    implementation group: 'org.json', name: 'json', version: '20240303'
+    implementation 'org.openjdk.nashorn:nashorn-core:15.4'
+    implementation 'org.graalvm.js:js:23.0.0'
+//    runtimeOnly group: 'com.github.johnrengelman.shadow', name: 'com.github.johnrengelman.shadow.gradle.plugin', version: '8.1.1', ext: 'pom'
+    
+//    testCompile group: 'junit', name: 'junit', version: '4.10'
+}
+
+println '-------------------------------------------------'
+def modules2manifest = ""
+new File("${projectDir}/modules").eachFileRecurse {file->
+    if (file.isFile() && file.name.endsWith("jar")) {
+        def File projectDir = new File("${projectDir}")
+        def relPath = projectDir.toPath().relativize(file.getParentFile().toPath())
+        modules2manifest += relPath.toString().toLowerCase().replaceAll("\\\\", "/") + "/" + file.name + " "
+    }
+}
+
+jar {
+    manifest {
+        attributes(
+            'Main-Class': mainClassName,
+            'Class-Path': modules2manifest
+        )
+    }
+}
+
+task copyJar {
+    doLast {
+        def src = shadowJar.outputs.files[0]
+        def dst = new File("${projectDir}/FlowPro.jar")
+        if(dst.exists()){
+            dst.delete()
+        }
+        dst << src.bytes
+    }
+}
+
+tasks.register('zip2Fetch', Zip) {
+    from "${projectDir}"
+    include 'modules/**', 'FlowPro.jar' //, 'lib/*.dll'
+    archiveFileName.set('FlowPro.zip')
+    destinationDirectory.set(file("${projectDir}"))
+}
+
+jar.finalizedBy shadowJar
+shadowJar.finalizedBy copyJar
+//copyJar.finalizedBy zip2Fetch
+

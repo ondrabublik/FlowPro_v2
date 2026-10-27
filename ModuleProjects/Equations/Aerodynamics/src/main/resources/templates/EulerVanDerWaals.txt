@@ -1,0 +1,29 @@
+model = EulerVanDerWaals
+
+dimension = 
+
+%%% exactly two out of the three following parameters must be defined: kappa, cp, cv
+%cp =         % heat capacity at constant pressure
+cv =         % heat capacity at constant volume
+kappa =   % heat capacity ratio
+
+%%% inlet
+isInletSupersonic =   % true / false
+%attackAngle =   % angle of attack
+%%% subsonic inlet boundary condition (isInletSupersonic = false)
+pIn0 =     % inlet stagnation pressure
+rhoIn0 =   % inlet stagnation density
+%TIn0 =    % inlet stagnation temperature (can be defined instead of rhoIn0)
+%%% supersonic inlet boundary condition (isInletSupersonic = true)
+pIn =     % inlet pressure
+rhoIn =   % inlet density
+%TIn =    % inlet temperature (can be defined instead of rhoIn)
+vIn =     % inlet velocity
+
+%%% outlet
+pOut =        % outlet pressure
+%machInf =    % Mach number of undisturbed flow (can be defined instead of pOut)
+
+%%%% van der walls
+Tc = % critical temperature
+pc = % critical pressure

@@ -1,0 +1,42 @@
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% numerical parameters %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+continueComputation =   % true / false
+
+% terminating conditions
+steps =       % computation is terminated after defined number of time steps is reached (mandatory)
+%residuum =   % computation is terminated after defined residuum is reached (optional)
+%tEnd =       % computation is terminated after defined physical time is reached (optional)
+
+%saveRate =  % save rate
+%animation = % true/false
+
+%movingMesh = % true for ALE computation
+
+spatialMethod =  % method
+order =          % order of accuracy in space
+timeMethod =     % method, order of accuracy in time
+timeOrder =      % order of accuracy in time
+CFL =
+threads =      % number of CPU threads that will be used for computation
+
+newtonIters = 1
+penalty = 1
+
+% damping
+dampTol = 1
+dampConst = 0
+
+% solvers setup
+%localSolverType =       % localImplicit, localExplicit
+%parallelSolverType = % distSchwartz, distKSP
+%linearSolver = 
+%preconditioner = 
+
+% parallel mode
+overlap = 2  % must be specified only for parallel computations
+schwarzIters = 0
+schwarzTol = 1e-10
+

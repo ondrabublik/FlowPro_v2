@@ -1,0 +1,95 @@
+import org.gradle.api.artifacts.*
+
+apply plugin: 'base' // To add "clean" task to the root project.
+
+subprojects {
+    apply from: rootProject.file('common.gradle')
+}
+
+def moduleDir = new File("${project(':FlowPro').projectDir}/modules")
+if (!moduleDir.exists()) {
+    moduleDir.mkdirs()
+}
+
+def File modelProjectDir = new File("${rootDir}/ModuleProjects")
+
+subprojects {
+    def projectName = project.name // String, a GString would not be found by contains()
+    // FlowPro itself, its API and the standalone GUI tools are not modules
+    if (!['FlowPro', 'FlowProAPI', 'FlowProManager', 'MeshGenerator2D', 'FlowProControl'].contains(projectName)) {
+        dependencies {
+            implementation project(':FlowProAPI')
+        }
+        
+        task copyJar(type: Copy) {
+            def File projectDir = new File("${projectDir}")          
+            def relPath = modelProjectDir.toPath().relativize(projectDir.getParentFile().toPath())
+            def modulJarDir = new File(moduleDir.toPath().toString() + '/' + relPath.toString().toLowerCase())
+            if (!modulJarDir.exists()) {
+                modulJarDir.mkdirs()
+            }
+        
+            from jar
+            into modulJarDir
+            rename { String fileName ->
+                fileName = "${project.name}.jar"
+            }
+        }
+        jar.finalizedBy copyJar
+    }
+}
+
+project(':FlowProManager') {
+    dependencies {
+        implementation project(':FlowProAPI')
+    }
+    
+    task copyJar {
+        doLast {
+            def src = jar.outputs.files[0]
+            def dst = new File("${project(':FlowPro').projectDir}/FlowProManager.jar")
+            if(dst.exists()){
+                dst.delete()
+            }
+            dst << src.bytes
+        }
+    }
+    jar.finalizedBy copyJar
+}
+
+project(':FlowPro') {
+    dependencies {
+        implementation project(':FlowProAPI')
+    }
+}
+
+task mergedJavadoc(type: Javadoc, description: 'Creates Javadoc from all the projects.') {
+    title = 'All modules'
+    destinationDir = new File(project.buildDir, 'merged-javadoc')
+
+    // Note: The closures below are executed lazily.
+    source {
+        subprojects*.sourceSets*.main*.allSource
+    }
+    classpath.from {
+        subprojects*.configurations*.compileClasspath
+    }
+}
+
+
+// standalone GUI tools, their jars are copied next to FlowPro.jar
+['MeshGenerator2D', 'FlowProControl'].each { toolName ->
+    project(":${toolName}") {
+        task copyJar {
+            doLast {
+                def src = jar.outputs.files[0]
+                def dst = new File("${project(':FlowPro').projectDir}/${toolName}.jar")
+                if (dst.exists()) {
+                    dst.delete()
+                }
+                dst << src.bytes
+            }
+        }
+        jar.finalizedBy copyJar
+    }
+}

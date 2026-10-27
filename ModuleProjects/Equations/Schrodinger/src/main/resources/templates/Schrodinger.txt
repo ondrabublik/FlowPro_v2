@@ -1,0 +1,8 @@
+model = Schrodinger
+
+dimension = 1
+
+%%% init wawe packet
+sigma = 
+k = 
+x0 = 
