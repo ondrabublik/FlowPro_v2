@@ -264,3 +264,24 @@ a pro dávkový režim.
   souseda pro diferenční Jacobián (−3 %) nestála za složitost. Obojí jsem nezařadil. Podle profileru (JFR)
   připadá při p = 2 na aritmetiku `residuumWall` 33 %, `residuum` 13 % a sekvenční `ILU0.factor` 28 % času –
   podstatné zrychlení sestavení dá až analytický Jacobián (bod B2).
+
+### B7 – stabilizace
+
+* **Umělá viskozita** má na stěnách vedle centrálního toku gradientu i skokovou penalizaci β0·[W]/dL (jako DDG
+  pro fyzikální viskozitu); bez ní je tok typu BR1, který pro p ≥ 1 není stabilní. Rovnicová složka
+  `dampInner` se dřív uplatňovala jen v objemu, nyní i na stěnách (průměr obou stran). Upraveny třídy
+  `DG`, `DGpure`, `DGpureIncompressible`, `DGiso` a analytické Jacobiány `DGjacobi`, `DGpureFast`.
+  GAMM (výchozí `dampTol = 3`): p = 1 konverguje stejně, p = 2 po 200 krocích 2,3e−2 → 1,7e−2.
+* **Časový krok explicitních metod** obsahuje faktor 1/(2p + 1) (`Element.timeStepOrderFactor`), CFL tak
+  nezávisí na řádu. *Pozor: pro p ≥ 1 je třeba zadat (2p + 1)× větší CFL než dřív pro stejný krok* (GAMM, RK3,
+  p = 1: dřív CFL = 0,1, nyní 0,3 dává stejné dt). Implicitní metody beze změny.
+* **Limiter pozitivity** (Zhang–Shu, parametr `positivityLimiter`, výchozí `true`): kde stav v objemovém nebo
+  stěnovém kvadraturním bodě není přípustný, zmenší se odchylka od průměru elementu
+  W = W̄ + θ(W − W̄) (bisekce na největší přípustné θ); průměr – a tedy konzervativnost – se nemění.
+  Přípustnost určuje nová metoda rozhraní `Equation.isAdmissible` (výchozí implementace přijme vše);
+  `Aerodynamics` kontroluje hustotu a vnitřní energii (ne `pressure()`, která tlak hladce ořezává),
+  `AdiabaticEulers` jen hustotu. Používá se po každé Newtonově iteraci, po každém stupni RK a ve slave procesech.
+  Test „123“ (Einfeldt, ρ = 1, p = 0,4, u = ±2, čtverec 40×40, bez umělé viskozity): bez limiteru RK3 p = 1, 2
+  skončí na NaN po ~20 krocích a BDF2 po 6 krocích (záporný tlak), s limiterem doběhnou do t = 1
+  (ρ_min ≈ 0,02, p_min ≈ 0,004–0,005, přesné řešení ρ_min ≈ 0,022). Na GAMM se limiter neaktivuje.
+* Funkce `limiteRho` dál mění vstupní pole (zůstalo, týká se jen stavů s ρ < RHO_TOL).

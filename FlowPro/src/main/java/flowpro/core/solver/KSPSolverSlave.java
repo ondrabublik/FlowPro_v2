@@ -226,6 +226,7 @@ public class KSPSolverSlave extends SlaveSolver {
 
                     case Tag.UPDATE_NEWTON: // update newton
                         updateW(x);
+                        Element.positivityLimiter(elems, par);
                         outMsg = new MPIMessage(Tag.NEWTON_UPDATED);
                         break;
 

@@ -179,7 +179,7 @@ public class State implements Serializable {
         for (Element elem : elems) {
             double localEigenvalue = elem.calculateMaxEigenvalue();
             if (localEigenvalue > 0) {
-                temp = Double.min(temp, elem.elemSize / localEigenvalue);
+                temp = Double.min(temp, elem.elemSize / localEigenvalue / elem.timeStepOrderFactor());
             }
         }
 

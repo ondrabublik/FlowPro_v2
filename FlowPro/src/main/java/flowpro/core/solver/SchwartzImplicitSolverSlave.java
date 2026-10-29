@@ -241,6 +241,7 @@ public class SchwartzImplicitSolverSlave extends SlaveSolver {
 
                     case Tag.UPDATE_NEWTON: // update newton
                         updateW(y);
+                        Element.positivityLimiter(elems, par);
                         outMsg = new MPIMessage(Tag.NEWTON_UPDATED);
                         break;
 

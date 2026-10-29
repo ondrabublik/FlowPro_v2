@@ -306,12 +306,20 @@ public class DGpure extends Element {
                         dWsum += (dWL[nEqs * d + m] + dWR[nEqs * d + m]) / 2 * n[k][p][d];
                     }
                 }
+                // artificial viscosity: central flux of the gradient and the jump penalty
+                // beta0 [W] / dL as in DDG (without the penalty the flux is not stable);
+                // the equation-wise damping dampInner acts also on the faces
+                double avFlux = 0;
+                if (TT[k] > -1) {
+                    double epsFace = 0.5 * (eps + elems[TT[k]].eps) + dampConst + 0.5 * (dampInner[m] + elems[TT[k]].dampInner[m]);
+                    avFlux = epsFace * (dWsum + beta0 * (WR[m] - WL[m]) / dL);
+                }
                 for (int j = 0; j < nBasis; j++) {
                     double jwb = Jac * weight * baseLeft[j];
                     if (eqn.isConvective()) {
                         K[nBasis * m + j] -= jwb * (fn[m] - vn * Wale[m]);
                         if (TT[k] > -1) {
-                            K[nBasis * m + j] += (0.5 * (eps + elems[TT[k]].eps) + dampConst) * jwb * dWsum;
+                            K[nBasis * m + j] += avFlux * jwb;
 //                        } else{
 //                            System.out.println(u[1]);
                         }
@@ -331,7 +339,7 @@ public class DGpure extends Element {
                         double jwb = Jac * weight * baseRight[j];
                         if (eqn.isConvective()) {
                             KR[nRBasis * m + j] -= jwb * (fn[m] - vn * Wale[m]);
-                            KR[nRBasis * m + j] += (0.5 * (eps + elems[TT[k]].eps) + dampConst) * jwb * dWsum;
+                            KR[nRBasis * m + j] += avFlux * jwb;
                         }
                         if (eqn.isDiffusive()) {
                             KR[nRBasis * m + j] += jwb * fvn[m];

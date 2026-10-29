@@ -336,6 +336,26 @@ public abstract class Aerodynamics implements Equation {
         return v + a;
     }
 
+    // smallest admissible density and internal energy of the positivity limiter
+    static final double ADMISSIBLE_TOL = 1e-10;
+
+    /**
+     * Positive density and internal energy rho e = E - |m|^2 / (2 rho), i.e.
+     * positive pressure of a perfect gas (pressure() cannot be used, it smoothly
+     * limits the pressure to positive values).
+     */
+    @Override
+    public boolean isAdmissible(double[] W) {
+        if (!(W[0] > ADMISSIBLE_TOL)) {
+            return false;
+        }
+        double momentum2 = .0;
+        for (int d = 0; d < dim; ++d) {
+            momentum2 += W[d + 1] * W[d + 1];
+        }
+        return W[dim + 1] - momentum2 / (2 * W[0]) > ADMISSIBLE_TOL;
+    }
+
     public double limiteRho(double rho) {
         if (rho < RHO_TOL) {
             return RHO_TOL * Math.exp((rho - RHO_TOL) / RHO_TOL);

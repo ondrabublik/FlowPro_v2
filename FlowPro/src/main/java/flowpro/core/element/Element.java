@@ -372,6 +372,109 @@ public abstract class Element implements Serializable {
         return norms;
     }
 
+    /**
+     * Positivity preserving limiter (Zhang, Shu): when the solution is not
+     * admissible (Equation.isAdmissible, e.g. negative density or pressure) in a
+     * volume or face quadrature point, its deviation from the element mean is
+     * scaled down, W = Wavg + theta (W - Wavg), theta in [0, 1] is the largest
+     * value admissible in all the points. The mean (i.e. the conservation) does not
+     * change. Nothing is done when the mean itself is not admissible.
+     *
+     * @return true if the solution has been limited
+     */
+    public boolean positivityLimiter() {
+        if (nBasis == 1) {
+            return false;
+        }
+        double[] Wavg = calculateAvgW();
+        if (!eqn.isAdmissible(Wavg)) {
+            return false;
+        }
+        double theta = 1;
+        for (int p = 0; p < Int.nIntVolume; p++) {
+            theta = Math.min(theta, admissibleTheta(Wavg, Int.basisVolume[p]));
+        }
+        for (int k = 0; k < nFaces; k++) {
+            for (int p = 0; p < Int.faces[k].nIntEdge; p++) {
+                theta = Math.min(theta, admissibleTheta(Wavg, Int.faces[k].basisFaceLeft[p]));
+            }
+        }
+        if (theta >= 1) {
+            return false;
+        }
+
+        // coefficients of the constant function 1 (L2 projection, exact)
+        double[][] Mgeom = new double[nBasis][nBasis];
+        double[] integrals = new double[nBasis];
+        for (int p = 0; p < Int.nIntVolume; p++) {
+            double jw = Int.JacobianVolume[p] * Int.weightsVolume[p];
+            double[] base = Int.basisVolume[p];
+            for (int i = 0; i < nBasis; i++) {
+                integrals[i] += jw * base[i];
+                for (int j = 0; j < nBasis; j++) {
+                    Mgeom[i][j] += jw * base[i] * base[j];
+                }
+            }
+        }
+        double[] one = Mat.times(Mat.invert(Mgeom), integrals);
+        for (int m = 0; m < nEqs; m++) {
+            for (int i = 0; i < nBasis; i++) {
+                double mean = one[i] * Wavg[m];
+                W[m * nBasis + i] = mean + theta * (W[m * nBasis + i] - mean);
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Applies the positivity limiter (if switched on by parameter
+     * positivityLimiter) to the elements of the computational domain.
+     *
+     * @return number of limited elements
+     */
+    public static int positivityLimiter(Element[] elems, Parameters par) {
+        if (!par.positivityLimiter) {
+            return 0;
+        }
+        java.util.concurrent.atomic.AtomicInteger nLimited = new java.util.concurrent.atomic.AtomicInteger();
+        flowpro.core.parallel.ParallelLoop.forEach(elems.length, par.nThreads, i -> {
+            if (elems[i].insideComputeDomain && elems[i].positivityLimiter()) {
+                nLimited.incrementAndGet();
+            }
+        });
+        return nLimited.get();
+    }
+
+    // the largest theta in [0, 1] for which Wavg + theta (W(x) - Wavg) is admissible,
+    // W(x) is given by the values of the basis functions in the point (bisection,
+    // the admissible set is convex and Wavg is admissible)
+    private double admissibleTheta(double[] Wavg, double[] base) {
+        double[] Wx = new double[nEqs];
+        for (int m = 0; m < nEqs; m++) {
+            for (int j = 0; j < nBasis; j++) {
+                Wx[m] += W[m * nBasis + j] * base[j];
+            }
+        }
+        if (eqn.isAdmissible(Wx)) {
+            return 1;
+        }
+        double lo = 0;
+        double hi = 1;
+        double[] Wt = new double[nEqs];
+        for (int iter = 0; iter < 30; iter++) {
+            double mid = 0.5 * (lo + hi);
+            for (int m = 0; m < nEqs; m++) {
+                Wt[m] = Wavg[m] + mid * (Wx[m] - Wavg[m]);
+            }
+            if (eqn.isAdmissible(Wt)) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        return lo;
+    }
+
     // ulozeni W do Wo
     public void copyW2Wo() {
         System.arraycopy(Wo, 0, Wo2, 0, nBasis * nEqs);
@@ -387,9 +490,21 @@ public abstract class Element implements Serializable {
     public double delta_t(double CFL) { //vypocet maximalniho casoveho kroku
         interpolateVelocityAndFillElementDataObjectOnVolume(centreVolumeInterpolant);
         double lam = eqn.maxEigenvalue(calculateAvgW(), elemData);
-        double dt = CFL * elemSize / lam;
+        double dt = CFL * elemSize / lam / timeStepOrderFactor();
 
         return dt;
+    }
+
+    /**
+     * The stable time step of an explicit DG method of order p decreases as
+     * 1 / (2p + 1), the CFL number is related to this factor (for p = 0 it is 1).
+     * Implicit methods are not restricted, the factor is 1.
+     */
+    public double timeStepOrderFactor() {
+        if (ti == null || ti.isImplicit()) {
+            return 1;
+        }
+        return 2 * (elemType.order - 1) + 1;
     }
 	
 	public double calculateMaxEigenvalue() {

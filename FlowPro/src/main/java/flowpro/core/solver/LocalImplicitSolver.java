@@ -223,6 +223,10 @@ public class LocalImplicitSolver extends MasterSolver {
 				for (int i = 0; i < nElems; i++) {
 					elems[i].updateW(x);
 				}
+				int nLimited = Element.positivityLimiter(elems, par);
+				if (nLimited > 0) {
+					LOG.info("   positivity limiter applied in " + nLimited + " elements");
+				}
 			}
 
 			if (!Double.isFinite(state.residuum)) {

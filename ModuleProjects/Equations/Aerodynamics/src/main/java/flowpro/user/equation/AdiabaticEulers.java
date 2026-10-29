@@ -14,7 +14,13 @@ public class AdiabaticEulers extends Aerodynamics {
         int dimension = props.getInt("dimension");
         super.init(props, dimension, dimension + 1, false);
     }
-    
+
+    // isentropic flow without energy equation, the pressure is positive for a positive density
+    @Override
+    public boolean isAdmissible(double[] W) {
+        return W[0] > ADMISSIBLE_TOL;
+    }
+
     @Override
     public double pressure(double[] W) {
         W[0] = limiteRho(W[0]);

@@ -279,6 +279,8 @@ public class LocalExplicitSolver extends MasterSolver {
             });
             if (ti0.isResidualStage(step)) {
                 JacobiAssembler.releaseResiduum(elems, par.nThreads);
+            } else { // the new values of the stage have been copied into W
+                Element.positivityLimiter(elems, par);
             }
         }
     }

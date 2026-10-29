@@ -85,7 +85,7 @@ public final class ParameterRegistry {
         add("timeMethod", Type.ENUM, null, "discretisation", "time integration, the order is given by timeOrder",
                 "BDF", "BDFIncompressible", "RK");
         add("timeOrder", Type.INT, "1", "discretisation", "order of the time integration (BDF: 1-2, RK: 2-4)");
-        add("CFL", Type.DOUBLE, "", "discretisation", "CFL number, CFL <= 0 switches the adaptive CFL on "
+        add("CFL", Type.DOUBLE, "", "discretisation", "CFL number (explicit methods: related to the time step h / (lambda (2p + 1))), CFL <= 0 switches the adaptive CFL on "
                 + "(either CFL or dt has to be given)");
         add("maxCFL", Type.DOUBLE, "1e4", "discretisation", "upper limit of the adaptive CFL (CFL <= 0)");
         add("dt", Type.DOUBLE, "", "discretisation", "fixed time step (either CFL or dt has to be given)");
@@ -116,6 +116,8 @@ public final class ParameterRegistry {
                 + "(none = first order, noLimiter = unlimited reconstruction)", "none", "noLimiter", "barth", "venka");
         add("venkatakrishnanK", Type.DOUBLE, "1", "stabilisation", "constant K of the Venkatakrishnan limiter, "
                 + "eps^2 = (K h)^3, the limiter is not active for smaller changes");
+        add("positivityLimiter", Type.BOOLEAN, "true", "stabilisation", "positivity preserving limiter (Zhang, Shu): "
+                + "the deviation from the element mean is scaled down where the state is not admissible (e.g. negative pressure)");
 
         // mesh
         add("meshScale", Type.DOUBLE, "1", "mesh", "the mesh is multiplied by meshScale / lRef");

@@ -259,7 +259,8 @@ public class DGjacobi extends DG {
                                 if (eqn.isConvective()) {
                                     ADiag[nBasis * m + i][nBasis * q + j] += 0.5 * Jac * weight * aL[nEqs * q + m] * baseLeft[i] * baseLeft[j];
                                     if (m == q) {
-                                        ADiag[nBasis * m + i][nBasis * q + j] -= 0.5 * (0.5 * (eps + elems[TT[k]].eps) + dampConst) * Jac * weight * dBazeSumL[i] * baseLeft[j];
+                                        ADiag[nBasis * m + i][nBasis * q + j] -= 0.5 * artificialViscosityFace(k, m) * Jac * weight * dBazeSumL[i] * baseLeft[j];
+                                        ADiag[nBasis * m + i][nBasis * q + j] += artificialViscosityFace(k, m) * beta0 / dL * Jac * weight * baseLeft[i] * baseLeft[j];
                                     }
                                 }
                                 if (eqn.isDiffusive()) {
@@ -280,7 +281,8 @@ public class DGjacobi extends DG {
                                 if (eqn.isConvective()) {
                                     Sous.A[nRBasis * m + i][nBasis * q + j] += 0.5 * Jac * weight * aR[nEqs * q + m] * baseRight[i] * baseLeft[j];
                                     if (m == q) {
-                                        Sous.A[nRBasis * m + i][nBasis * q + j] -= 0.5 * (0.5 * (eps + elems[TT[k]].eps) + dampConst) * Jac * weight * dBazeSumR[i] * baseLeft[j];
+                                        Sous.A[nRBasis * m + i][nBasis * q + j] -= 0.5 * artificialViscosityFace(k, m) * Jac * weight * dBazeSumR[i] * baseLeft[j];
+                                        Sous.A[nRBasis * m + i][nBasis * q + j] -= artificialViscosityFace(k, m) * beta0 / dL * Jac * weight * baseRight[i] * baseLeft[j];
                                     }
                                 }
                                 if (eqn.isDiffusive()) {

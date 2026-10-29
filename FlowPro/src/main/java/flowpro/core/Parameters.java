@@ -71,6 +71,7 @@ public class Parameters implements Serializable {
     // dynamics parameters
     public boolean movingMesh;
     public boolean gcl; // discrete geometric conservation law on a moving mesh
+    public boolean positivityLimiter; // positivity preserving limiter (Zhang, Shu)
     public String movementType;
     public double bodyLength; // length of body in z direction
 
@@ -241,6 +242,7 @@ public class Parameters implements Serializable {
                 movingMesh = props.getBoolean("movingMesh");
             }
             gcl = has("gcl") ? props.getBoolean("gcl") : true;
+            positivityLimiter = has("positivityLimiter") ? props.getBoolean("positivityLimiter") : true;
 
             // iterative solver setting
             if (has("linearSolver")) {

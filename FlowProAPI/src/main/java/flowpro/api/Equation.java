@@ -112,4 +112,17 @@ public interface Equation extends Serializable {
     public double[] getResults(double[] W, double[] dW, double[] X, String name);
     
     public double[] combineShockSensors(double[] shock);
+
+    /**
+     * Admissibility of a state for the positivity preserving limiter (e.g.
+     * positive density and pressure). The set of admissible states must be
+     * convex. The default implementation accepts every state, i.e. the limiter
+     * does nothing.
+     *
+     * @param W state (must not be modified)
+     * @return true if the state is admissible
+     */
+    default boolean isAdmissible(double[] W) {
+        return true;
+    }
 }
