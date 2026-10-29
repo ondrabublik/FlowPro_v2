@@ -28,11 +28,36 @@ public class JacobiAssembler {
     public void assemble(double dt, double dto) {
         this.dt = dt;
         this.dto = dto;
+        prepareResiduum(elems, par.nThreads);
         flowpro.core.parallel.ParallelLoop.forEach(elems.length, par.nThreads, i -> {
             if (elems[i].insideComputeDomain) {
                 ((Implicit) elems[i].ti).assembleJacobiMatrix(dt, dto);
             }
         });
+        releaseResiduum(elems, par.nThreads);
+    }
+
+    /**
+     * Only the right hand side (residuum of the time step), without the Jacobi
+     * matrix.
+     */
+    public void assembleResiduum(double dt, double dto) {
+        prepareResiduum(elems, par.nThreads);
+        flowpro.core.parallel.ParallelLoop.forEach(elems.length, par.nThreads, i -> {
+            if (elems[i].insideComputeDomain) {
+                ((Implicit) elems[i].ti).assembleResiduum(dt, dto);
+            }
+        });
+        releaseResiduum(elems, par.nThreads);
+    }
+
+    // see Element.prepareResiduum
+    public static void prepareResiduum(Element[] elems, int nThreads) {
+        flowpro.core.parallel.ParallelLoop.forEach(elems.length, nThreads, i -> elems[i].prepareResiduum());
+    }
+
+    public static void releaseResiduum(Element[] elems, int nThreads) {
+        flowpro.core.parallel.ParallelLoop.forEach(elems.length, nThreads, i -> elems[i].releaseResiduum());
     }
 
 }

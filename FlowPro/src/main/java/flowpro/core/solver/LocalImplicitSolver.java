@@ -162,10 +162,9 @@ public class LocalImplicitSolver extends MasterSolver {
 				mesh.computeSolutionMonitor();
 			}
 
-			// compute artificial viscosity
-			for (int i = 0; i < nElems; i++) {
-				elems[i].limiter(isFirstIter);
-			}
+			// compute artificial viscosity (each element writes only its own data)
+			boolean isFirstStep = isFirstIter;
+			ParallelLoop.forEach(nElems, par.nThreads, i -> elems[i].limiter(isFirstStep));
 
 			assembleTime = 0;
 			solveTime = 0;
@@ -186,12 +185,7 @@ public class LocalImplicitSolver extends MasterSolver {
 				if (s > 0) {
 					// convergence of the Newton iterations: the residuum of the time step
 					// (without the Jacobi matrix) related to the one before the first iteration
-					double[] dtTimes = {dt, dto};
-					flowpro.core.parallel.ParallelLoop.forEach(nElems, par.nThreads, i -> {
-						if (elems[i].insideComputeDomain) {
-							((Implicit) elems[i].ti).assembleResiduum(dtTimes[0], dtTimes[1]);
-						}
-					});
+					assembler.assembleResiduum(dt, dto);
 					double relativeRhs = rhsNorm0 > 0 ? rhsNorm() / rhsNorm0 : 0;
 					LOG.info("   " + s + "-inner iteration, relative residuum = " + relativeRhs);
 					if (relativeRhs < par.newtonIterTol) {

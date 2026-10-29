@@ -114,6 +114,8 @@ public final class ParameterRegistry {
         add("beta0", Type.DOUBLE, "2", "stabilisation", "constant of the direct discontinuous Galerkin method");
         add("FVMlimiter", Type.ENUM, "none", "stabilisation", "reconstruction limiter for order = 1 "
                 + "(none = first order, noLimiter = unlimited reconstruction)", "none", "noLimiter", "barth", "venka");
+        add("venkatakrishnanK", Type.DOUBLE, "1", "stabilisation", "constant K of the Venkatakrishnan limiter, "
+                + "eps^2 = (K h)^3, the limiter is not active for smaller changes");
 
         // mesh
         add("meshScale", Type.DOUBLE, "1", "mesh", "the mesh is multiplied by meshScale / lRef");

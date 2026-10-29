@@ -242,3 +242,25 @@ a pro dávkový režim.
   tok a zůstává práce smykového napětí u_w·(τn). Moduly s typem stěny `WALL` (NavierStokes, KOmega*,
   SpalartAllmaras*, IBM, R, MatlabClient, VelocityBreak); `SpalartAllmarasRotordynamics/Seal` mají vlastní
   rychlost stěny a zůstaly beze změny.
+
+### B6 – výkon
+
+* **Metoda konečných objemů** (`DG`, řád 1): gradient (Green–Gauss) a koeficient limiteru se počítají jednou
+  za sestavení ve fázi `Element.prepareResiduum` (paralelně, všechna W pevná) a sousedé je jen čtou; vlastní
+  gradient s perturbací V jednou za vyhodnocení residua. Dřív se obojí počítalo pro každou stěnu a každý
+  kvadraturní bod znovu, i pro souseda. Fázi přípravy volají `JacobiAssembler` (sestavení i kontrola Newtona)
+  a explicitní řešič před každým stupněm s residuem. GAMM, 300 kroků: sestavení bez limiteru 1,36 → 1,01 s,
+  Barth 1,87 → 1,15 s, Venkatakrishnan 1,85 → 1,23 s.
+* Sousedův gradient na hranici dostával `elemData` elementu, který se ptal (jiné `currentX`, rychlost sítě);
+  nyní ho počítá soused sám a okrajová podmínka dostává data příslušné stěny.
+* **Barthův limiter** kontroluje rekonstrukci v kvadraturních bodech stěn (kde se vyhodnocuje), ne jen
+  ve středu stěny; meze zahrnují i hodnotu samotného elementu (standardní tvar).
+* **Venkatakrishnanův limiter** má člen ε² = (K·h)³ (nový parametr `venkatakrishnanK`, výchozí 1), bez něj
+  limiter působil i v hladkých oblastech a konvergence stagnovala. GAMM (řád 1, 60 kroků): residuum
+  1,3e−1 → 8e−3.
+* **Limiter (umělá viskozita)** v implicitním řešiči běží paralelně (jako v explicitním).
+* **Pracovní pole místo alokací** ve vnitřních smyčkách `DGpure` jsem zkusil a změřil (GAMM, p = 2):
+  sestavení 2,07 → 2,06 s, tj. bez přínosu – JIT malé krátkodobé alokace odstraní sám; ani cache hodnot
+  souseda pro diferenční Jacobián (−3 %) nestála za složitost. Obojí jsem nezařadil. Podle profileru (JFR)
+  připadá při p = 2 na aritmetiku `residuumWall` 33 %, `residuum` 13 % a sekvenční `ILU0.factor` 28 % času –
+  podstatné zrychlení sestavení dá až analytický Jacobián (bod B2).

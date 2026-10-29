@@ -269,11 +269,17 @@ public class LocalExplicitSolver extends MasterSolver {
                     }
                 });
             }
+            if (ti0.isResidualStage(step)) {
+                JacobiAssembler.prepareResiduum(elems, par.nThreads);
+            }
             ParallelLoop.forEach(elems.length, par.nThreads, i -> {
                 if (elems[i].insideComputeDomain) {
                     ((Explicit) elems[i].ti).computeExplicitStep(step, dt);
                 }
             });
+            if (ti0.isResidualStage(step)) {
+                JacobiAssembler.releaseResiduum(elems, par.nThreads);
+            }
         }
     }
 }

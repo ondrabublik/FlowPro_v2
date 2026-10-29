@@ -201,6 +201,21 @@ public abstract class Element implements Serializable {
 
     abstract public void limiter(boolean isFirstIter);
 
+    /**
+     * Called for all elements (in parallel) before the residua are evaluated,
+     * while W of all elements is fixed; data that the neighbours read can be
+     * prepared here (e.g. the gradient of the finite volume method).
+     */
+    public void prepareResiduum() {
+    }
+
+    /**
+     * Called after the residua have been evaluated, the prepared data are no
+     * longer valid.
+     */
+    public void releaseResiduum() {
+    }
+
     abstract public boolean isJacobiMatrixAssembly();
 
     public void createTimeIntegrationElementObject(Element elem) throws IOException {

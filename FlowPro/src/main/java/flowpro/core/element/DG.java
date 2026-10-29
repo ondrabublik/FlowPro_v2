@@ -36,6 +36,15 @@ public class DG extends Element {
     public double dampConst; // konstantni pridavna viskozita 
     
     public String FVMlimiter;
+    public double venkatakrishnanK; // constant K of the Venkatakrishnan limiter, eps^2 = (K h)^3
+
+    // finite volume method (order 1): gradient and limiter coefficient of W of this
+    // element, computed in prepareResiduum (all W fixed) and read by the neighbours
+    private transient double[] fvmGradient;
+    private transient double fvmSigma;
+    // gradient and limiter coefficient of W + V, computed once in residuum()
+    private transient double[] fvmGradientV;
+    private transient double fvmSigmaV;
 
     public DG(){
         
@@ -82,6 +91,42 @@ public class DG extends Element {
         } else {
             FVMlimiter = "none";
         }
+
+        if (props.containsKey("venkatakrishnanK")) {
+            venkatakrishnanK = props.getDouble("venkatakrishnanK");
+        } else {
+            venkatakrishnanK = 1;
+        }
+    }
+
+    /**
+     * Finite volume method: the gradient (and the limiter) of every element is
+     * computed once before the residua are evaluated, previously it was
+     * recomputed for every face and every quadrature point, also for the
+     * neighbours.
+     */
+    @Override
+    public void prepareResiduum() {
+        if (elemType.order == 1 && insideComputeDomain) {
+            fvmGradient = volumeDerivative(null);
+            fvmSigma = FVMlimiter(fvmGradient, FVMlimiter);
+        }
+    }
+
+    @Override
+    public void releaseResiduum() {
+        fvmGradient = null;
+    }
+
+    // gradient and limiter coefficient of the (unperturbed) neighbour of order 1;
+    // without prepareResiduum it is computed here (it writes the elemData of the
+    // neighbour, thus it must not run in parallel with the neighbour)
+    private double[] neighbourGradient(DG neighbour) {
+        return neighbour.fvmGradient != null ? neighbour.fvmGradient : neighbour.volumeDerivative(null);
+    }
+
+    private double neighbourSigma(DG neighbour, double[] gradient) {
+        return neighbour.fvmGradient != null ? neighbour.fvmSigma : neighbour.FVMlimiter(gradient, FVMlimiter);
     }
 
     public void initCondition() {
@@ -118,6 +163,10 @@ public class DG extends Element {
 
     // tato funkce vypocitava reziduum__________________________________________
     public void residuum(double[] V, double[] K, double[][] KR) {
+        if (elemType.order == 1) {
+            fvmGradientV = volumeDerivative(V);
+            fvmSigmaV = FVMlimiter(fvmGradientV, FVMlimiter);
+        }
 
         // vypocet toku hranici
         for (int k = 0; k < nFaces; k++) { // opakovani pres jednotlive steny
@@ -207,7 +256,7 @@ public class DG extends Element {
                     WInt[j] = W[j] + V[j];
 
                 }
-                double[] dWInt = volumeDerivative(V, u, elemData);
+                double[] dWInt = fvmGradientV;
 
                 // production
                 double[] product = eqn.sourceTerm(WInt, dWInt, elemData);
@@ -276,8 +325,12 @@ public class DG extends Element {
                     }
                 }
             } else { // Finite volume method
-                dWL = volumeDerivative(V, u, elemData);
-                double sigmaL = FVMlimiter(dWL, FVMlimiter);
+                if (fvmGradientV == null) { // residuumWall called without residuum
+                    fvmGradientV = volumeDerivative(V);
+                    fvmSigmaV = FVMlimiter(fvmGradientV, FVMlimiter);
+                }
+                dWL = fvmGradientV;
+                double sigmaL = fvmSigmaV;
                 for (int m = 0; m < nEqs; m++) {
                     double dW = 0;
                     for (int d = 0; d < dim; d++) {
@@ -302,13 +355,13 @@ public class DG extends Element {
                     }
                 } else { // Finite Volume Method
                     if (elems[TT[k]].insideComputeDomain) {
-                        dWR = ((DG) elems[TT[k]]).volumeDerivative(null, u, elemData);
+                        dWR = neighbourGradient((DG) elems[TT[k]]);
                     } else {
                         System.arraycopy(dWL, 0, dWR, 0, dim * nEqs);
                     }
                     if (elems[TT[k]].insideComputeDomain) {
                         double[] WRp = elems[TT[k]].W;
-                        double sigmaR = ((DG) elems[TT[k]]).FVMlimiter(dWR, FVMlimiter);
+                        double sigmaR = neighbourSigma((DG) elems[TT[k]], dWR);
                         for (int j = 0; j < nEqs; j++) {
                             double dW = 0;
                             for (int d = 0; d < dim; d++) {
@@ -407,7 +460,9 @@ public class DG extends Element {
         }
     }
 
-    double[] volumeDerivative(double[] V, double[] u, ElementData elemData) {
+    // Green-Gauss gradient of W + V (V may be null) of an element of order 1, the
+    // face values are the averages with the neighbours or the boundary values
+    double[] volumeDerivative(double[] V) {
         double[] dW = new double[dim * nEqs];
         double[] WL = new double[nEqs];
         double[] WWall;
@@ -433,6 +488,9 @@ public class DG extends Element {
                 }
                 WWall = Mat.times(Mat.plusVec(WR, WL), 0.5);
             } else {
+                // the boundary condition gets the data of this face (position, mesh
+                // velocity), previously it got the data of the element that asked
+                interpolateVelocityAndFillElementDataObjectOnFace(k, Int.faces[k].interpolantFace[0], Int.faces[k].faceIndexes);
                 WWall = eqn.boundaryValue(WL, n[k][0], TT[k], elemData);
             }
 
@@ -446,128 +504,78 @@ public class DG extends Element {
         return dW;
     }
 
+    /**
+     * Limiter coefficient sigma of the linear reconstruction W + sigma dW.(x - Xs)
+     * of an element of order 1. The bounds are given by the averages of the
+     * neighbours and of the element itself, the reconstruction is checked at the
+     * quadrature points of the faces, where it is evaluated (previously only at
+     * the face midpoints).
+     */
     double FVMlimiter(double[] dW, String limiterType) {
-        double sigma = 0;
-        double[] Wmin;
-        double[] Wmax;
+        boolean isVenkatakrishnan;
         switch (limiterType) {
-            case "none": // first order, no reconstruction
-                sigma = 0;
-                break;
             case "noLimiter": // unlimited linear reconstruction
-                sigma = 1;
-                break;
+                return 1;
             case "barth":
-                Wmin = new double[nEqs];
-                Wmax = new double[nEqs];
-                for (int j = 0; j < nEqs; j++) {
-                    Wmin[j] = Double.POSITIVE_INFINITY;
-                    Wmax[j] = Double.NEGATIVE_INFINITY;
-                }
-                for (int k = 0; k < nFaces; k++) {
-                    if (TT[k] > -1) {
-                        if (elems[TT[k]].insideComputeDomain) {
-                            double[] WR = elems[TT[k]].calculateAvgW();
-                            for (int j = 0; j < nEqs; j++) {
-                                if (WR[j] > Wmax[j]) {
-                                    Wmax[j] = WR[j];
-                                }
-                                if (WR[j] < Wmin[j]) {
-                                    Wmin[j] = WR[j];
-                                }
-                            }
-                        } else {
-                            return 0;
-                        }
-                    }
-                }
-                for (int j = 0; j < nEqs; j++) {
-                    if (Wmin[j] > Wmax[j]) { // no interior neighbour
-                        return 0;
-                    }
-                }
-                sigma = 1; // Barth-Jespersen limiter is bounded by 1
-                for (int k = 0; k < nFaces; k++) {
-                    for (int j = 0; j < nEqs; j++) {
-                        double a = 1;
-                        double deltaW = 0;
-                        for (int d = 0; d < dim; d++) {
-                            deltaW = deltaW + (Xes[k][d] - Xs[d]) * dW[nEqs * d + j];
-                        }
-                        double WL = W[j] + deltaW;
-                        if (WL > W[j]) {
-                            a = (Wmax[j] - W[j]) / (WL - W[j]);
-                        } else if (WL < W[j]) {
-                            a = (Wmin[j] - W[j]) / (WL - W[j]);
-                        }
-                        if (a < 0) {
-                            return 0;
-                        }
-                        if (a < sigma) {
-                            sigma = a;
-                        }
-                    }
-                }
+                isVenkatakrishnan = false;
                 break;
-
             case "venka": // Venkatakrishnan
-                Wmin = new double[nEqs];
-                Wmax = new double[nEqs];
-                for (int j = 0; j < nEqs; j++) {
-                    Wmin[j] = Double.POSITIVE_INFINITY;
-                    Wmax[j] = Double.NEGATIVE_INFINITY;
-                }
-                for (int k = 0; k < nFaces; k++) {
-                    if (TT[k] > -1) {
-                        if (elems[TT[k]].insideComputeDomain) {
-                            double[] WR = elems[TT[k]].calculateAvgW();
-                            for (int j = 0; j < nEqs; j++) {
-                                if (WR[j] > Wmax[j]) {
-                                    Wmax[j] = WR[j];
-                                }
-                                if (WR[j] < Wmin[j]) {
-                                    Wmin[j] = WR[j];
-                                }
-                            }
-                        } else {
-                            return 0;
-                        }
-                    }
-                }
-                for (int j = 0; j < nEqs; j++) {
-                    if (Wmin[j] > Wmax[j]) { // no interior neighbour
-                        return 0;
-                    }
-                }
-                sigma = 1;
-                for (int k = 0; k < nFaces; k++) {
-                    for (int j = 0; j < nEqs; j++) {
-                        double a = 1;
-                        double deltaW = 0;
-                        for (int d = 0; d < dim; d++) {
-                            deltaW = deltaW + (Xes[k][d] - Xs[d]) * dW[nEqs * d + j];
-                        }
-                        double WL = W[j] + deltaW;
-                        if (WL > W[j]) {
-                            a = venkatakrishnan((Wmax[j] - W[j]) / (WL - W[j]));
-                        } else if (WL < W[j]) {
-                            a = venkatakrishnan((Wmin[j] - W[j]) / (WL - W[j]));
-                        }
-                        if (a < 0) {
-                            return 0;
-                        }
-                        if (a < sigma) {
-                            sigma = a;
-                        }
-                    }
-                }
+                isVenkatakrishnan = true;
                 break;
+            default: // "none", first order, no reconstruction
+                return 0;
         }
-        return sigma;
+
+        double[] Wmin = Arrays.copyOf(W, nEqs);
+        double[] Wmax = Arrays.copyOf(W, nEqs);
+        boolean hasNeighbour = false;
+        for (int k = 0; k < nFaces; k++) {
+            if (TT[k] > -1) {
+                if (!elems[TT[k]].insideComputeDomain) {
+                    return 0;
+                }
+                double[] WR = elems[TT[k]].calculateAvgW();
+                for (int j = 0; j < nEqs; j++) {
+                    Wmax[j] = Math.max(Wmax[j], WR[j]);
+                    Wmin[j] = Math.min(Wmin[j], WR[j]);
+                }
+                hasNeighbour = true;
+            }
+        }
+        if (!hasNeighbour) {
+            return 0;
+        }
+
+        // eps^2 = (K h)^3 switches the Venkatakrishnan limiter off in smooth
+        // regions, without it the convergence to a steady state stalls
+        double eps2 = isVenkatakrishnan ? Math.pow(venkatakrishnanK * elemSize, 3) : 0;
+        double sigma = 1; // the limiters are bounded by 1
+        for (int k = 0; k < nFaces; k++) {
+            double[][] coords = Int.faces[k].coordinatesFace;
+            for (int p = 0; p < Int.faces[k].nIntEdge; p++) {
+                for (int j = 0; j < nEqs; j++) {
+                    double deltaMinus = 0;
+                    for (int d = 0; d < dim; d++) {
+                        deltaMinus += (coords[p][d] - Xs[d]) * dW[nEqs * d + j];
+                    }
+                    if (deltaMinus == 0) {
+                        continue;
+                    }
+                    double deltaPlus = deltaMinus > 0 ? Wmax[j] - W[j] : Wmin[j] - W[j];
+                    double a = isVenkatakrishnan ? venkatakrishnan(deltaPlus, deltaMinus, eps2) : deltaPlus / deltaMinus;
+                    sigma = Math.min(sigma, a);
+                }
+            }
+        }
+        return Math.max(sigma, 0);
     }
 
-    double venkatakrishnan(double y) {
-        return (y * y + 2 * y) / (y * y + y + 2);
+    // Venkatakrishnan's limiter function of the allowed (deltaPlus) and of the
+    // unlimited (deltaMinus) change, (y^2 + 2y)/(y^2 + y + 2), y = deltaPlus/deltaMinus, for eps2 = 0
+    static double venkatakrishnan(double deltaPlus, double deltaMinus, double eps2) {
+        double num = (deltaPlus * deltaPlus + eps2) * deltaMinus + 2 * deltaMinus * deltaMinus * deltaPlus;
+        double den = deltaPlus * deltaPlus + 2 * deltaMinus * deltaMinus + deltaPlus * deltaMinus + eps2;
+        return num / (den * deltaMinus);
     }
 
     // Aplikace limiteru
