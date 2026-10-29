@@ -22,9 +22,13 @@ import java.util.Arrays;
 public class BlockILU0 extends Preconditioner {
 
     int nThreads;
+    // elements in the order of their degrees of freedom (see ElementOrdering),
+    // the block rows and columns below are positions in this array
     Element[] elems;
+    // position of the element (by its index in the mesh) in elems
+    int[] rank;
     int nElem;
-    // column blocks of block row i (ascending element indexes, including i)
+    // column blocks of block row i (ascending positions, including i)
     int[][] cols;
     // position of the diagonal block in cols[i]
     int[] diag;
@@ -41,8 +45,20 @@ public class BlockILU0 extends Preconditioner {
 
     @Override
     public void setMatrix(SparseMatrix A) {
-        elems = A.getElems();
-        nElem = elems.length;
+        Element[] meshElems = A.getElems();
+        nElem = meshElems.length;
+        Integer[] byDofs = new Integer[nElem];
+        for (int i = 0; i < nElem; i++) {
+            byDofs[i] = i;
+        }
+        Arrays.sort(byDofs, (a, b) -> Integer.compare(meshElems[a].gIndex[0], meshElems[b].gIndex[0]));
+        elems = new Element[nElem];
+        rank = new int[nElem];
+        for (int r = 0; r < nElem; r++) {
+            elems[r] = meshElems[byDofs[r]];
+            rank[byDofs[r]] = r;
+        }
+
         cols = new int[nElem][];
         diag = new int[nElem];
         blocks = new double[nElem][][][];
@@ -61,8 +77,8 @@ public class BlockILU0 extends Preconditioner {
             row[s++] = i;
             for (int k = 0; k < elem.nFaces; k++) {
                 int t = elem.TT[k];
-                if (t > -1 && elems[t].insideComputeDomain && !contains(row, s, t)) {
-                    row[s++] = t;
+                if (t > -1 && meshElems[t].insideComputeDomain && !contains(row, s, rank[t])) {
+                    row[s++] = rank[t];
                 }
             }
             cols[i] = Arrays.copyOf(row, s);
@@ -105,7 +121,7 @@ public class BlockILU0 extends Preconditioner {
                 for (double v : r) {
                     if (!Double.isFinite(v)) {
                         throw new ArithmeticException("singular diagonal block of element "
-                                + i + " during block ILU process");
+                                + elems[i].index + " during block ILU process");
                     }
                 }
             }
@@ -183,8 +199,8 @@ public class BlockILU0 extends Preconditioner {
         addTransposed(blocks[i][diag[i]], ti.ADiag);
         for (int k = 0; k < elem.nFaces; k++) {
             int t = elem.TT[k];
-            if (t > -1 && elems[t].insideComputeDomain) {
-                addTransposed(blocks[i][Arrays.binarySearch(row, t)], ti.ANeighs[k].A);
+            if (t > -1 && elems[rank[t]].insideComputeDomain) {
+                addTransposed(blocks[i][Arrays.binarySearch(row, rank[t])], ti.ANeighs[k].A);
             }
         }
     }

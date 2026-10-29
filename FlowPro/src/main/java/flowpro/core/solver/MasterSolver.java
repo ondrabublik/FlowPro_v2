@@ -84,11 +84,56 @@ abstract public class MasterSolver {
 	 * Appends one line (residuum, time, CPU time) into file residuum.txt.
 	 */
 	public static void appendResiduum(String simulationPath, double residuum, double t, double CPU) {
+		appendResiduum(simulationPath, residuum, t, CPU, null);
+	}
+
+	/**
+	 * Appends one line (residuum, time, CPU time and the relative residua of the
+	 * individual equations, if given) into file residuum.txt.
+	 */
+	public static void appendResiduum(String simulationPath, double residuum, double t, double CPU, double[] equationResiduum) {
 		try (PrintWriter out = new PrintWriter(new BufferedWriter(new FileWriter(simulationPath + "residuum.txt", true)))) {
-			out.println(Double.toString(residuum) + " " + Double.toString(t) + " " + Double.toString(CPU));
+			StringBuilder line = new StringBuilder();
+			line.append(residuum).append(' ').append(t).append(' ').append(CPU);
+			if (equationResiduum != null) {
+				for (double r : equationResiduum) {
+					line.append(' ').append(r);
+				}
+			}
+			out.println(line);
 		} catch (IOException ex) {
 			org.slf4j.LoggerFactory.getLogger(MasterSolver.class).warn("residuum could not be saved: " + ex.getMessage());
 		}
+	}
+
+	/**
+	 * L2 norms of the spatial residuum R(W) of the individual equations over the
+	 * elements of the computational domain (see Element.l2NormsSquared).
+	 */
+	public static double[] residuumNorms(flowpro.core.element.Element[] elems, int nThreads) {
+		double[][] elemNorms = new double[elems.length][];
+		flowpro.core.parallel.ParallelLoop.forEach(elems.length, nThreads, i -> {
+			if (elems[i].insideComputeDomain) {
+				elemNorms[i] = elems[i].l2NormsSquared(elems[i].ti.spatialResiduum);
+			}
+		});
+		double[] norms = null;
+		for (double[] en : elemNorms) {
+			if (en != null) {
+				if (norms == null) {
+					norms = new double[en.length];
+				}
+				for (int m = 0; m < en.length; m++) {
+					norms[m] += en[m];
+				}
+			}
+		}
+		if (norms != null) {
+			for (int m = 0; m < norms.length; m++) {
+				norms[m] = Math.sqrt(norms[m]);
+			}
+		}
+		return norms;
 	}
 
 	private static MPIMaster distributeJobs(int nSlaves, Parameters par) throws IOException, MPIException {

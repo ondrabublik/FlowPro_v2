@@ -69,7 +69,8 @@ public final class ParameterRegistry {
         // run control
         add("continueComputation", Type.BOOLEAN, null, "run", "true = continue from the saved state (state.txt, We.txt)");
         add("steps", Type.INT, null, "run", "number of time steps of this run");
-        add("residuum", Type.DOUBLE, "-1", "run", "computation stops when the residuum drops below this value");
+        add("residuum", Type.DOUBLE, "-1", "run", "computation stops when the residuum drops below this value (L2 norm of the spatial residuum "
+                + "of each equation related to its maximum in the first 5 steps, maximum over the equations)");
         add("tEnd", Type.DOUBLE, "", "run", "physical time at which the computation stops");
         add("saveRate", Type.INT, "", "run", "results are saved every saveRate steps");
         add("timeSaveRate", Type.DOUBLE, "", "run", "results are saved every timeSaveRate of physical time");
@@ -94,10 +95,13 @@ public final class ParameterRegistry {
 
         // nonlinear and linear solver
         add("newtonIters", Type.INT, null, "solver", "maximal number of Newton (inner) iterations in one time step");
-        add("newtonIterTol", Type.DOUBLE, "1e-4", "solver", "tolerance of the Newton iterations");
+        add("newtonIterTol", Type.DOUBLE, "1e-4", "solver", "tolerance of the Newton iterations (L2 norm of the residuum of the time step related to the one before the first iteration)");
         add("linearSolver", Type.ENUM, null, "solver", "linear solver", names(LinearSolver.LinearSolverType.values()));
         add("preconditioner", Type.ENUM, null, "solver", "preconditioner of the linear solver",
                 names(Preconditioner.PreconditionerType.values()));
+        add("elementOrdering", Type.ENUM, "rcm", "solver", "numbering of the degrees of freedom in the local solvers (ILU depends on it), "
+                + "rcm = reverse Cuthill-McKee, none = order of the elements",
+                names(ElementOrdering.Type.values()));
         add("iterativeSolverTol", Type.DOUBLE, "1e-2", "solver", "relative tolerance of the iterative linear solver");
 
         // stabilisation

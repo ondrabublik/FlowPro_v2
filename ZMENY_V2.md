@@ -185,3 +185,29 @@ a pro dávkový režim.
 * Síť z generátoru (GAMM kanál, 1600 trojúhelníků): `check` projde, 0 vadných elementů, výpočet 200 kroků konverguje.
 * Řízené zastavení souborem `STOP` (stav uložen, `steps` odpovídá), JS počáteční podmínka, chybové hlášky.
 * Serializace `Mesh` přes `SafeObjectInputStream` projde, cizí třída je odmítnuta.
+
+---
+
+## 7. Zlepšení výpočtové metody (návrhy B z revize)
+
+### B3 – míra konvergence a číslování neznámých
+
+* **Residuum** (sloupec 1 v `residuum.txt`, kritérium `residuum`, adaptivní CFL) je nově L2 norma prostorového
+  residua R(W) každé rovnice, ‖M⁻¹R‖ = √(Rᵀ M⁻¹ R), vztažená k maximu z prvních 5 kroků (jako ve Fluentu);
+  výsledná hodnota je maximum přes rovnice. Dřív to byl neškálovaný součet |W−Wo|/dt koeficientů báze
+  (závislý na síti, bázi a – při velkém CFL – i na dt, residuum klesalo jen proto, že rostlo dt).
+  Normalizace se ukládá do `state.txt` (`residuumNormalisation`) a při `continueComputation` se zachová.
+  Do `residuum.txt` se za čas a CPU přidávají relativní residua jednotlivých rovnic (GUI čte první 3 sloupce).
+  Residuum se počítá z R(W) na začátku kroku – v implicitních řešičích z první Newtonovy iterace, v explicitních
+  z prvního stupně, tj. bez dalšího vyhodnocení. Paralelní slave procesy posílají součty norem po rovnicích.
+* **Newtonovy iterace** končí, když L2 norma residua časového kroku (pravé strany) klesne pod
+  `newtonIterTol` × norma před první iterací (dřív absolutní `L1(x)/nElems`). Residuum se kontroluje bez
+  sestavení Jacobiho matice (nová metoda `Implicit.assembleResiduum`). Pro `newtonIters = 1` beze změny.
+* **Číslování neznámých** – nový parametr `elementOrdering` (`rcm` – výchozí, `none`): reverse Cuthill–McKee
+  na grafu sousedů. Mění se jen číslování neznámých v soustavě (`gIndex`), indexy elementů a výstupní soubory
+  zůstávají. `blockilu0` postupuje v pořadí neznámých. Opravena `SparseMatrix.updateB`, která předpokládala
+  číslování v pořadí elementů. Paralelní řešiče na pořadí elementů spoléhají, používají vždy `none`.
+* Ověření (GAMM): výsledky s výchozími parametry jsou bit po bitu stejné jako dřív (mění se jen vypisované
+  residuum); s předpodmíněním nezávislým na pořadí (`blockjacobi`, `none`) dává `rcm` stejné výsledky (5e−9);
+  p = 2, adaptivní CFL, 150 kroků: čas řešení soustav ILU0 6,8 s → 5,8 s, BlockILU0 4,2 s → 3,6 s.
+  Newton (BDF2, `newtonIters = 6`): relativní residuum 4e−3 → 1,7e−5 → 1e−7 (kvadratická konvergence).

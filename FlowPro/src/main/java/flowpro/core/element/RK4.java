@@ -50,6 +50,7 @@ public class RK4 extends Explicit {
             case 1:
                 Arrays.fill(K1, 0);
                 elem.residuum(V, K1, RwN);
+                System.arraycopy(K1, 0, spatialResiduum, 0, K1.length); // R(W) at the beginning of the step
                 K1 = Mat.times(iM, K1);
                 break;
             case 2:

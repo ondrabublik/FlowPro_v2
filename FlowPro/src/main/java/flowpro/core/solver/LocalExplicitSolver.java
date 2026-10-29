@@ -154,10 +154,11 @@ public class LocalExplicitSolver extends MasterSolver {
                 ltsIter.iterate(step, dt);
             }
 
-            state.residuum = calculateResiduumW(dt);
+            // residuum R(W) of the solution at the beginning of the step (first stage)
+            state.setResiduum(residuumNorms(elems, par.nThreads));
             state.executionTime = watch.getTime();
             state.t += dt;
-            appendResiduum(simulationPath, state.residuum, state.t, state.executionTime);
+            appendResiduum(simulationPath, state.residuum, state.t, state.executionTime, state.equationResiduum);
             copyW2Wo();
 
             String info = infoToString(totalSteps, dt);

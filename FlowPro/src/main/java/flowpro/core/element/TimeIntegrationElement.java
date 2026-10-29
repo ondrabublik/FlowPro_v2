@@ -19,11 +19,19 @@ public abstract class TimeIntegrationElement {
     int nBasis;
     int nFaces;
 
+    /**
+     * spatial residuum R(W) evaluated at the beginning of the time step (in the
+     * first Newton iteration or in the first stage), used for the convergence
+     * monitoring
+     */
+    public double[] spatialResiduum;
+
     void set(Element elem) {
         this.elem = elem;
         nEqs = elem.nEqs;
         nBasis = elem.nBasis;
         nFaces = elem.nFaces;
+        spatialResiduum = new double[nEqs * nBasis];
     }
 
     abstract public void init(FlowProProperties props);

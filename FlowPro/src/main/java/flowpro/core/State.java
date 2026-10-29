@@ -21,6 +21,13 @@ public class State implements Serializable {
      */
     private static final double MAX_DT_REDUCTION = 1024;
 
+    /**
+     * the residuum of each equation is related to its maximum over this number
+     * of the first time steps (the residuum of the very first step is often
+     * not representative, e.g. a uniform initial condition)
+     */
+    private static final int N_NORMALISATION_STEPS = 5;
+
     private boolean hasOrderChanged;
 
     public final String stateFilePath;
@@ -35,7 +42,13 @@ public class State implements Serializable {
     public int steps; // number of time steps that has already been taken
     public double t;  // physical time
     public double currentCFL;
+    // relative residuum, the maximum of equationResiduum
     public double residuum;
+    // L2 norms of the spatial residuum of the individual equations related to
+    // the norms in the first steps (residuumNormalisation)
+    public double[] equationResiduum;
+    private double[] residuumNormalisation;
+    private int nNormalisationSteps;
     public long executionTime;  // current execution time
     public long transferTime;   // current transfer time
 
@@ -77,6 +90,16 @@ public class State implements Serializable {
 
             currentCFL = stateProperties.getDouble("CFL");
 
+            // the normalisation of the residuum is kept when the computation continues
+            if (stateProperties.containsKey("residuumNormalisation")) {
+                String[] values = stateProperties.getString("residuumNormalisation").trim().split("[,\\s]+");
+                residuumNormalisation = new double[values.length];
+                for (int m = 0; m < values.length; m++) {
+                    residuumNormalisation[m] = Double.parseDouble(values[m]);
+                }
+                nNormalisationSteps = N_NORMALISATION_STEPS;
+            }
+
             int oldOrder = stateProperties.getInt("order");
             if (oldOrder != order) {
                 hasOrderChanged = true;
@@ -97,11 +120,57 @@ public class State implements Serializable {
         output.setProperty("residuum", Double.toString(residuum));
         output.setProperty("CFL", Double.toString(currentCFL));
         output.setProperty("dt", Double.toString(dt));
+        if (residuumNormalisation != null && nNormalisationSteps >= N_NORMALISATION_STEPS) {
+            StringBuilder sb = new StringBuilder();
+            for (double r : residuumNormalisation) {
+                sb.append(sb.length() > 0 ? "," : "").append(r);
+            }
+            output.setProperty("residuumNormalisation", sb.toString());
+        }
 
         output.setProperty("order", Integer.toString(order));
 
         try (OutputStream out = new FileOutputStream(stateFilePath)) {
             output.store(out, null);
+        }
+    }
+
+    /**
+     * Sets the residuum from the L2 norms of the spatial residuum of the
+     * individual equations. Each norm is related to its maximum over the first
+     * N_NORMALISATION_STEPS steps, residuum is the maximum over the equations.
+     *
+     * @param norms L2 norms of the residuum of the equations
+     */
+    public void setResiduum(double[] norms) {
+        int nEqs = norms.length;
+        if (residuumNormalisation == null || residuumNormalisation.length != nEqs) {
+            residuumNormalisation = new double[nEqs];
+            nNormalisationSteps = 0;
+        }
+        if (nNormalisationSteps < N_NORMALISATION_STEPS) {
+            for (int m = 0; m < nEqs; m++) {
+                residuumNormalisation[m] = Math.max(residuumNormalisation[m], norms[m]);
+            }
+            nNormalisationSteps++;
+        }
+
+        // an equation with zero residuum in the first steps (e.g. a quantity which
+        // is identically zero) is related to the largest normalisation
+        double maxNormalisation = 0;
+        for (double r : residuumNormalisation) {
+            maxNormalisation = Math.max(maxNormalisation, r);
+        }
+        equationResiduum = new double[nEqs];
+        residuum = 0;
+        for (int m = 0; m < nEqs; m++) {
+            double normalisation = residuumNormalisation[m] > 0 ? residuumNormalisation[m] : maxNormalisation;
+            equationResiduum[m] = normalisation > 0 ? norms[m] / normalisation : norms[m];
+            if (Double.isNaN(equationResiduum[m])) {
+                residuum = Double.NaN;
+            } else if (!Double.isNaN(residuum)) {
+                residuum = Math.max(residuum, equationResiduum[m]);
+            }
         }
     }
 

@@ -139,15 +139,19 @@ public class SchwartzImplicitSolverSlave extends SlaveSolver {
         }
     }
 
-    private double calculateResiduumW(double dt) {
-        double resid = 0;
+    // squares of the L2 norms of the spatial residuum of the equations over the
+    // elements of the subdomain (from the last assembly), see Element.l2NormsSquared
+    private double[] residuumNormsSquared() {
+        double[] norms = new double[elems[0].getNEqs()];
         for (Element elem : elems) {
-            if (elem.insideComputeDomain) {
-                resid += elem.calculateResiduumW(dt);
+            if (elem.insideMetisDomain) {
+                double[] en = elem.l2NormsSquared(elem.ti.spatialResiduum);
+                for (int m = 0; m < norms.length; m++) {
+                    norms[m] += en[m];
+                }
             }
         }
-
-        return resid / elems.length;
+        return norms;
     }
 
     public void solve() throws IOException, MPIException {
@@ -241,7 +245,7 @@ public class SchwartzImplicitSolverSlave extends SlaveSolver {
                         break;
 
                     case Tag.LIMITER_and_NEXT_TIME_LEVEL: // next time level
-                        double residuum = calculateResiduumW(dt);
+                        double[] residuum = residuumNormsSquared();
                         copyW2Wo();
                         mesh.updateTime(dt);
                         outMsg = new MPIMessage(Tag.RESIDUUM, residuum);

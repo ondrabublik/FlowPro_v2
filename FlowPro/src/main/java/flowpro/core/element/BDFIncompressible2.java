@@ -56,6 +56,7 @@ public class BDFIncompressible2 extends Implicit {
         double[] Wo2 = elem.Wo2;
 
         System.arraycopy(Rw, 0, RHS_loc, 0, Rw.length);
+        System.arraycopy(Rw, 0, spatialResiduum, 0, Rw.length);
         for (int m = 0; m < nEqs; m++) {
             for (int i = 0; i < nBasis; i++) {
                 for (int j = 0; j < nBasis; j++) {
@@ -65,30 +66,34 @@ public class BDFIncompressible2 extends Implicit {
         }
     }
 
+    void setCoefficients(double dt, double dto) {
+        // coefs, dto <= 0 means that the previous time level is not known
+        // (first step of the computation), the step is then BDF1
+        double[] c = BDF2.coefficients(dt, dto);
+        for(int m = 1; m < nEqs; m++){
+            a1[m] = c[0];
+            a2[m] = c[1];
+            a3[m] = c[2];
+        }
+
+        a1[0] = beta*c[0];
+        a2[0] = beta*c[1];
+        a3[0] = beta*c[2];
+    }
+
+    @Override
+    public void assembleResiduum(double dt, double dto) {
+        setCoefficients(dt, dto);
+        double[] Rw = new double[nBasis * nEqs];
+        elem.residuum(new double[nBasis * nEqs], Rw, new double[nFaces][]);
+        assembleRHS(Rw, a1, a2, a3);
+    }
+
     // Generovani radku globalni matice a vektoru prave strany
     @Override
     public void assembleJacobiMatrix(double dt, double dto) {
-        
-        // coefs, dto <= 0 means that the previous time level is not known
-        // (first step of the computation), the step is then BDF1
-        double c1 = 1 / dt;
-        double c2 = -1 / dt;
-        double c3 = 0;
-        if (dto > 0) {
-            c1 = (2 * dt + dto) / (dt * (dt + dto));  // 3/(2*dt);
-            c2 = -(dt + dto) / (dt * dto);  // -2/dt;
-            c3 = dt / (dto * (dt + dto));  // 1/(2*dt);
-        }
-        for(int m = 1; m < nEqs; m++){
-            a1[m] = c1;
-            a2[m] = c2;
-            a3[m] = c3;
-        }
+        setCoefficients(dt, dto);
 
-        a1[0] = beta*c1;
-        a2[0] = beta*c2;
-        a3[0] = beta*c3;
-        
         // vnitrni element - krivkovy i objemovy integral
         double[] V = new double[nBasis * nEqs];
         double[] Rw = new double[nBasis * nEqs];

@@ -139,17 +139,14 @@ public class SparseMatrix {
     }
 
     public void updateB(double[] b) {
-        int s = 0;
         for (Element elem : elems) {
             if (elem.insideComputeDomain) {
+                // the degrees of freedom are numbered by gIndex (see ElementOrdering)
                 double[] RHS_loc = ((Implicit)elem.ti).RHS_loc;
-                int n = elem.getNEqs() * elem.nBasis;
-                for (int i = 0; i < n; i++) {
-                    b[s] = RHS_loc[i];
-                    s++;
+                int[] glob = elem.gIndex;
+                for (int i = 0; i < glob.length; i++) {
+                    b[glob[i]] = RHS_loc[i];
                 }
-            } else {
-                s += elem.getNEqs() * elem.nBasis;
             }
         }
     }

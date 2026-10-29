@@ -229,12 +229,22 @@ public class KSPSolver extends MasterSolver {
 				}
 
 				mpi.sendAll(new MPIMessage(Tag.LIMITER_and_NEXT_TIME_LEVEL));
-				double resid = 0.0;
+				// L2 norms of the spatial residuum of the equations, sums over the subdomains
+				double[] norms = null;
 				for (int d = 0; d < nDoms; ++d) {
-					resid += (double) mpi.receive(d, Tag.RESIDUUM).getData();
+					double[] dn = (double[]) mpi.receive(d, Tag.RESIDUUM).getData();
+					if (norms == null) {
+						norms = new double[dn.length];
+					}
+					for (int m = 0; m < dn.length; m++) {
+						norms[m] += dn[m];
+					}
 				}
-				state.residuum = resid / domain.nElems;
-				if (state.residuum == 0) {
+				for (int m = 0; m < norms.length; m++) {
+					norms[m] = Math.sqrt(norms[m]);
+				}
+				state.setResiduum(norms);
+				if (!Double.isFinite(state.residuum)) {
 					LOG.error("computation error");
 					break;
 				}
@@ -249,7 +259,7 @@ public class KSPSolver extends MasterSolver {
 				dto = dt;
 				state.t += dt;
 				state.executionTime = watch.getTime();
-				appendResiduum(simulationPath, state.residuum, state.t, state.executionTime);
+				appendResiduum(simulationPath, state.residuum, state.t, state.executionTime, state.equationResiduum);
 				String info = infoToString(totalSteps, dt, assembleTime, solveTime);
 				if ((state.steps % par.saveRate) == 0 || (state.t > tsr * par.timeSaveRate)) {
 					Solution solution = collectSolution(mpi);

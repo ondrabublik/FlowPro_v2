@@ -6,6 +6,7 @@ import flowpro.core.parallel.*;
 import flowpro.api.Equation;
 import static flowpro.core.FlowProMain.*;
 import flowpro.core.element.Element;
+import flowpro.core.element.Implicit;
 import flowpro.api.Dynamics;
 import flowpro.api.FluidForces;
 import flowpro.core.LinearSolvers.LinearSolver;
@@ -82,13 +83,17 @@ public class LocalImplicitSolver extends MasterSolver {
 		}
 	}
 
-	private double calculateResiduumW(double dt) {
-		double resid = 0;
+	// L2 norm of the residuum of the time step (right hand side of the Newton iteration)
+	private double rhsNorm() {
+		double sum = 0;
 		for (Element elem : elems) {
-			resid += elem.calculateResiduumW(dt);
+			if (elem.insideComputeDomain) {
+				for (double r : elem.l2NormsSquared(((Implicit) elem.ti).RHS_loc)) {
+					sum += r;
+				}
+			}
 		}
-
-		return resid / elems.length;
+		return Math.sqrt(sum);
 	}
 
 	private String infoToString(int totalSteps, double dt, long assembleTime, long solveTime) throws IOException {
@@ -164,6 +169,7 @@ public class LocalImplicitSolver extends MasterSolver {
 
 			assembleTime = 0;
 			solveTime = 0;
+			double rhsNorm0 = 0; // norm of the residuum of the time step before the first Newton iteration
 			for (int s = 0; s < par.newtonIters; s++) {  // vnitrni iterace (Newton)
 				// mesh deformation
 				if (par.movingMesh) {
@@ -177,8 +183,29 @@ public class LocalImplicitSolver extends MasterSolver {
 				}
 
 				long startTime = System.currentTimeMillis();
+				if (s > 0) {
+					// convergence of the Newton iterations: the residuum of the time step
+					// (without the Jacobi matrix) related to the one before the first iteration
+					double[] dtTimes = {dt, dto};
+					flowpro.core.parallel.ParallelLoop.forEach(nElems, par.nThreads, i -> {
+						if (elems[i].insideComputeDomain) {
+							((Implicit) elems[i].ti).assembleResiduum(dtTimes[0], dtTimes[1]);
+						}
+					});
+					double relativeRhs = rhsNorm0 > 0 ? rhsNorm() / rhsNorm0 : 0;
+					LOG.info("   " + s + "-inner iteration, relative residuum = " + relativeRhs);
+					if (relativeRhs < par.newtonIterTol) {
+						assembleTime += System.currentTimeMillis() - startTime;
+						break;
+					}
+				}
 				assembler.assemble(dt, dto);
 				assembleTime += System.currentTimeMillis() - startTime;
+				if (s == 0) {
+					// residuum R(W) of the solution at the beginning of the time step
+					state.setResiduum(residuumNorms(elems, par.nThreads));
+					rhsNorm0 = rhsNorm();
+				}
 
 				// reseni soustavy rovnic
 				Arrays.fill(x, 0.0);
@@ -198,30 +225,20 @@ public class LocalImplicitSolver extends MasterSolver {
 					continue outerloop;
 				}
 
-				state.residuum = Mat.L1Norm(x) / nElems;
-				if (par.newtonIters > 1) {
-					LOG.info("   " + s + "-inner iteration, reziduum = " + state.residuum);
-				}
-
 				// ulozeni novych hodnot
 				for (int i = 0; i < nElems; i++) {
 					elems[i].updateW(x);
 				}
-
-				if (state.residuum < par.newtonIterTol) {
-					break;
-				}
 			}
 
-			state.residuum = calculateResiduumW(dt);
-			if (state.residuum == 0) {
-				LOG.error("computational error - residuum is equal to zero");
+			if (!Double.isFinite(state.residuum)) {
+				LOG.error("computational error - residuum is not a finite number");
 				break;
 			}
 			state.executionTime = watch.getTime();
 			state.t += dt;
 			dto = dt;
-			appendResiduum(simulationPath, state.residuum, state.t, state.executionTime);
+			appendResiduum(simulationPath, state.residuum, state.t, state.executionTime, state.equationResiduum);
 
 			copyW2Wo();
 			mesh.updateTime(dt);

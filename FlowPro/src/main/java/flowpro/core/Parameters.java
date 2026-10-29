@@ -59,6 +59,7 @@ public class Parameters implements Serializable {
     // solver type
     public String linearSolver;
     public String preconditioner;
+    public String elementOrdering; // numbering of the degrees of freedom
     public double iterativeSolverTol;
 
     // single time / dual time
@@ -252,6 +253,14 @@ public class Parameters implements Serializable {
             } else {
                 flowpro.core.LinearSolvers.preconditioners.Preconditioner.PreconditionerType.help();
                 throw new IOException("parameter preconditioner must be defined");
+            }
+
+            elementOrdering = has("elementOrdering") ? props.getString("elementOrdering").trim().toLowerCase() : "rcm";
+            try {
+                ElementOrdering.Type.valueOf(elementOrdering);
+            } catch (IllegalArgumentException ex) {
+                ElementOrdering.Type.help();
+                throw new IOException("unknown element ordering " + elementOrdering);
             }
 
             if (has("iterativeSolverTol")) {

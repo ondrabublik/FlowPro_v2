@@ -50,6 +50,7 @@ public class RK3 extends Explicit {
             case 1: // RK3
                 Arrays.fill(Rw, 0);
                 elem.residuum(V, Rw, RwN);
+                System.arraycopy(Rw, 0, spatialResiduum, 0, Rw.length); // R(W) at the beginning of the step
                 Rw = Mat.times(iM, Rw);
                 for (int j = 0; j < W.length; j++) {
                     W1[j] = Wo[j] + dt * Rw[j];

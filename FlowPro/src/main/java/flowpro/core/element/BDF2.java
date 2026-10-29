@@ -38,6 +38,7 @@ public class BDF2 extends Implicit {
         double[] Wo2 = elem.Wo2;
 
         System.arraycopy(Rw, 0, RHS_loc, 0, Rw.length);
+        System.arraycopy(Rw, 0, spatialResiduum, 0, Rw.length);
         for (int m = 0; m < nEqs; m++) {
             for (int i = 0; i < nBasis; i++) {
                 for (int j = 0; j < nBasis; j++) {
@@ -47,18 +48,32 @@ public class BDF2 extends Implicit {
         }
     }
 
+    // coefs, dto <= 0 means that the previous time level is not known
+    // (first step of the computation), the step is then BDF1
+    static double[] coefficients(double dt, double dto) {
+        if (dto > 0) {
+            return new double[]{
+                (2 * dt + dto) / (dt * (dt + dto)), // 3/(2*dt);
+                -(dt + dto) / (dt * dto), // -2/dt;
+                dt / (dto * (dt + dto))}; // 1/(2*dt);
+        }
+        return new double[]{1 / dt, -1 / dt, 0};
+    }
+
+    @Override
+    public void assembleResiduum(double dt, double dto) {
+        double[] a = coefficients(dt, dto);
+        double[] Rw = new double[nBasis * nEqs];
+        elem.residuum(new double[nBasis * nEqs], Rw, new double[nFaces][]);
+        assembleRHS(Rw, a[0], a[1], a[2]);
+    }
+
     // Generovani radku globalni matice a vektoru prave strany
     public void assembleJacobiMatrix(double dt, double dto) {
-        // coefs, dto <= 0 means that the previous time level is not known
-        // (first step of the computation), the step is then BDF1
-        double a1 = 1 / dt;
-        double a2 = -1 / dt;
-        double a3 = 0;
-        if (dto > 0) {
-            a1 = (2 * dt + dto) / (dt * (dt + dto));  // 3/(2*dt);
-            a2 = -(dt + dto) / (dt * dto);  // -2/dt;
-            a3 = dt / (dto * (dt + dto));  // 1/(2*dt);
-        }
+        double[] a = coefficients(dt, dto);
+        double a1 = a[0];
+        double a2 = a[1];
+        double a3 = a[2];
 
         // vnitrni element - krivkovy i objemovy integral
         double[] V = new double[nBasis * nEqs];

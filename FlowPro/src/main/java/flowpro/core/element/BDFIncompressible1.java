@@ -49,6 +49,7 @@ public class BDFIncompressible1 extends Implicit {
         double[] Wo = elem.Wo;
 
         System.arraycopy(Rw, 0, RHS_loc, 0, Rw.length);
+        System.arraycopy(Rw, 0, spatialResiduum, 0, Rw.length);
         for (int m = 0; m < nEqs; m++) {
             for (int i = 0; i < nBasis; i++) {
                 for (int j = 0; j < nBasis; j++) {
@@ -58,16 +59,28 @@ public class BDFIncompressible1 extends Implicit {
         }
     }
 
-    // Generovani radku globalni matice a vektoru prave strany
-    public void assembleJacobiMatrix(double dt, double dto) {
-        // coefs
+    void setCoefficients(double dt) {
         a1[0] = beta / dt;
         a2[0] = -beta / dt;
         for(int m = 1; m < nEqs; m++){
             a1[m] = 1 / dt;
             a2[m] = -1 / dt;
         }
-        
+    }
+
+    @Override
+    public void assembleResiduum(double dt, double dto) {
+        setCoefficients(dt);
+        double[] Rw = new double[nBasis * nEqs];
+        elem.residuum(new double[nBasis * nEqs], Rw, new double[nFaces][]);
+        assembleRHS(Rw, a1, a2);
+    }
+
+    // Generovani radku globalni matice a vektoru prave strany
+    public void assembleJacobiMatrix(double dt, double dto) {
+        // coefs
+        setCoefficients(dt);
+
         // vnitrni element - krivkovy i objemovy integral
         double[] V = new double[nBasis * nEqs];
         double[] Rw = new double[nBasis * nEqs];

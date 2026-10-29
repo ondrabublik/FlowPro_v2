@@ -175,10 +175,15 @@ public class Mesh implements Serializable {
         System.out.println();
 
         System.out.print("geometry    ");
+        // numbering of the degrees of freedom (the incomplete factorisations
+        // depend on it), the indexes of the elements do not change; the parallel
+        // solvers rely on the numbering in the order of the elements
         int dofs0 = 0;
+        for (int i : ElementOrdering.order(elems, par.parallelMode ? "none" : par.elementOrdering)) {
+            dofs0 = elems[i].setGlobalIndex(dofs0);
+        }
         int nBrokenElements = 0;
         for (int i = 0; i < nElems; i++) {
-            dofs0 = elems[i].setGlobalIndex(dofs0);
             if (elems[i].insideComputeDomain) {
                 elems[i].Int.initNeighbours(elems, elems[i]);   // init face integration rules
                 elems[i].computeGeometry();                     // compute geometrical relations

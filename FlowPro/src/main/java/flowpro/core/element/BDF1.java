@@ -38,6 +38,7 @@ public class BDF1 extends Implicit {
         double[] Wo = elem.Wo;
 
         System.arraycopy(Rw, 0, RHS_loc, 0, Rw.length);
+        System.arraycopy(Rw, 0, spatialResiduum, 0, Rw.length);
         for (int m = 0; m < nEqs; m++) {
             for (int i = 0; i < nBasis; i++) {
                 for (int j = 0; j < nBasis; j++) {
@@ -45,6 +46,13 @@ public class BDF1 extends Implicit {
                 }
             }
         }
+    }
+
+    @Override
+    public void assembleResiduum(double dt, double dto) {
+        double[] Rw = new double[nBasis * nEqs];
+        elem.residuum(new double[nBasis * nEqs], Rw, new double[nFaces][]);
+        assembleRHS(Rw, 1 / dt, -1 / dt);
     }
 
     // Generovani radku globalni matice a vektoru prave strany

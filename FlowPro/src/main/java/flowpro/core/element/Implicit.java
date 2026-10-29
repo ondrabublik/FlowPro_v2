@@ -23,6 +23,13 @@ public abstract class Implicit extends TimeIntegrationElement {
 
     abstract public void assembleJacobiMatrix(double dt, double dto);
 
+    /**
+     * Assembles only the right hand side (the residuum of the time step, RHS_loc)
+     * and the spatial residuum, without the Jacobi matrix. Used to check the
+     * convergence of the Newton iterations.
+     */
+    abstract public void assembleResiduum(double dt, double dto);
+
     @Override
     public boolean isImplicit() {
         return true;

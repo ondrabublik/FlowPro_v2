@@ -331,6 +331,30 @@ public abstract class Element implements Serializable {
         return rez;
     }
 
+    /**
+     * Squares of the L2 norms of the function r = M^-1 R for the individual
+     * equations, i.e. R_m^T M^-1 R_m. R is a weak (tested by the basis
+     * functions) vector of the element, e.g. the residuum. Unlike the sum of the
+     * coefficients, the norm depends neither on the basis nor on the element size.
+     */
+    public double[] l2NormsSquared(double[] R) {
+        double[][] invM = Mat.invert(M);
+        double[] norms = new double[nEqs];
+        for (int m = 0; m < nEqs; m++) {
+            int s = m * nBasis;
+            double sum = 0;
+            for (int i = 0; i < nBasis; i++) {
+                double r = 0;
+                for (int j = 0; j < nBasis; j++) {
+                    r += invM[i][j] * R[s + j];
+                }
+                sum += R[s + i] * r;
+            }
+            norms[m] = sum;
+        }
+        return norms;
+    }
+
     // ulozeni W do Wo
     public void copyW2Wo() {
         System.arraycopy(Wo, 0, Wo2, 0, nBasis * nEqs);
