@@ -203,9 +203,26 @@ public class IncompressibleNavierStokesSpalartAllmarasSecondaryInput implements 
                 }
                 break;
 
+            case (BoundaryType.INLET_3):
+                double Vn = 0;
+                for (int d = 0; d < dim; d++) {
+                    Vn += VInSecondary[d] * n[d];
+                }
+                if (Vn > 0) {
+                    // suction = mass flow outlet: the mass flux is prescribed,
+                    // momentum and turbulence leave with the interior values
+                    f[0] = Vn;
+                    for (int d = 0; d < dim; d++) {
+                        f[d + 1] = WL[d + 1] * Vn + WL[0] * n[d];
+                    }
+                    f[dim + 1] = WL[dim + 1] * Vn;
+                } else {
+                    f = convectiveFlux(WR, n, elem);
+                }
+                break;
+
             case (BoundaryType.INLET):
             case (BoundaryType.INLET_2):
-            case (BoundaryType.INLET_3):
             case (BoundaryType.OUTLET):
                 f = convectiveFlux(WR, n, elem);
                 break;
@@ -435,19 +452,36 @@ public class IncompressibleNavierStokesSpalartAllmarasSecondaryInput implements 
                 break;
             
             case (BoundaryType.INLET_3):
-                WR[0] = WL[0];				
+                WR[0] = WL[0];
+                double Vn3 = 0;
                 for (int d = 0; d < dim; ++d) {
-                    WR[d + 1] = VInSecondary[d];
+                    Vn3 += VInSecondary[d] * n[d];
                 }
-                WR[dim + 1] = vtIn;
-                break;    
+                if (Vn3 > 0) {
+                    // suction (mass flow outlet, see numericalConvectiveFlux) - interior state
+                    for (int d = 0; d < dim + 1; ++d) {
+                        WR[d + 1] = WL[d + 1];
+                    }
+                } else {
+                    for (int d = 0; d < dim; ++d) {
+                        WR[d + 1] = VInSecondary[d];
+                    }
+                    WR[dim + 1] = vtIn;
+                }
+                break;
                 
             case (BoundaryType.OUTLET):
                 WR[0] = pOut;
+                double VnOut = 0;
                 for (int d = 0; d < dim; ++d) {
-                    WR[d + 1] = WL[d + 1];
+                    VnOut += WL[d + 1] * n[d];
                 }
-                WR[dim + 1] = WL[dim + 1];
+                // backflow stabilization: no inflow through the outlet
+                double VnIn = Math.min(VnOut, 0);
+                for (int d = 0; d < dim; ++d) {
+                    WR[d + 1] = WL[d + 1] - n[d] * VnIn;
+                }
+                WR[dim + 1] = VnOut < 0 ? vtIn : WL[dim + 1];
                 break;
         }
         return WR;
@@ -590,6 +624,15 @@ public class IncompressibleNavierStokesSpalartAllmarasSecondaryInput implements 
                 double fv1 = xi * xi * xi / (xi * xi * xi + cv1 * cv1 * cv1);
                 return new double[]{W[dim + 1] * fv1};
 
+            case "nut": // kinematic eddy viscosity [m^2/s]
+                return new double[]{eddyViscosityRatio(W) * velocityRef * lRef / Re};
+
+            case "tke": // turbulent kinetic energy by Bradshaw's hypothesis k = nut * S / sqrt(Cmu) [m^2/s^2]
+                return new double[]{tke(W, dW)};
+
+            case "turbulenceIntensity": // sqrt(2/3 k) / velocityRef [-]
+                return new double[]{Math.sqrt(2.0 / 3 * tke(W, dW)) / velocityRef};
+
             case "vorticity":
                 if (dim == 2) {
                     double dvdx = dW[2];
@@ -603,6 +646,26 @@ public class IncompressibleNavierStokesSpalartAllmarasSecondaryInput implements 
             default:
                 throw new UnsupportedOperationException("undefined value " + name);
         }
+    }
+
+    // nut / nu
+    double eddyViscosityRatio(double[] W) {
+        double xi = max(W[dim + 1], 0) / v;
+        double fv1 = xi * xi * xi / (xi * xi * xi + cv1 * cv1 * cv1);
+        return xi * fv1;
+    }
+
+    double tke(double[] W, double[] dW) {
+        double S2 = 0; // 2 * Sij * Sij
+        for (int d = 0; d < dim; ++d) {
+            for (int f = 0; f < dim; ++f) {
+                double sdf = (dW[f * nEqs + d + 1] + dW[d * nEqs + f + 1]) / 2;
+                S2 += 2 * sdf * sdf;
+            }
+        }
+        double S = Math.sqrt(S2) * velocityRef / lRef;
+        double nut = eddyViscosityRatio(W) * velocityRef * lRef / Re;
+        return nut * S / Math.sqrt(0.09);
     }
 
     public double max(double a, double b) {
