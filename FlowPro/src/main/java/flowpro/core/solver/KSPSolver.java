@@ -124,8 +124,8 @@ public class KSPSolver extends MasterSolver {
 		int nDoms = domain.nDoms;
 
 		StopWatch watch = new StopWatch();
-		double dto = 1;
-		CFLSetup cflObj = new CFLSetup(par.cfl, par.varyCFL);
+		double dto = -1; // previous time step, <= 0 until the first step is finished
+		CFLSetup cflObj = new CFLSetup(par.cfl, par.varyCFL, par.maxCFL);
 		long assembleTime = 0;
 		long solveTime = 0;
 		int tsr = firstTimeSaveIndex(state.t, par.timeSaveRate); // for time save rate
@@ -203,7 +203,7 @@ public class KSPSolver extends MasterSolver {
 
 					// assembling
 					long startTime = System.currentTimeMillis();
-					mpi.sendAll(new MPIMessage(Tag.ASSEMBLE, dt));
+					mpi.sendAll(new MPIMessage(Tag.ASSEMBLE, new double[]{dt, dto}));
 					mpi.waitForAll(Tag.ASSEMBELED);
 					assembleTime = System.currentTimeMillis() - startTime;
 

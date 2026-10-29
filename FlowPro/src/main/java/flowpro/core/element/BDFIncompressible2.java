@@ -69,16 +69,25 @@ public class BDFIncompressible2 extends Implicit {
     @Override
     public void assembleJacobiMatrix(double dt, double dto) {
         
-        // coefs
-        for(int m = 1; m < nEqs; m++){
-            a1[m] = (2 * dt + dto) / (dt * (dt + dto));  // 3/(2*dt);
-            a2[m] = -(dt + dto) / (dt * dto);  // -2/dt;
-            a3[m] = dt / (dto * (dt + dto));  // 1/(2*dt);
+        // coefs, dto <= 0 means that the previous time level is not known
+        // (first step of the computation), the step is then BDF1
+        double c1 = 1 / dt;
+        double c2 = -1 / dt;
+        double c3 = 0;
+        if (dto > 0) {
+            c1 = (2 * dt + dto) / (dt * (dt + dto));  // 3/(2*dt);
+            c2 = -(dt + dto) / (dt * dto);  // -2/dt;
+            c3 = dt / (dto * (dt + dto));  // 1/(2*dt);
         }
-        
-        a1[0] = beta*(2 * dt + dto) / (dt * (dt + dto));
-        a2[0] = -beta*(dt + dto) / (dt * dto);
-        a3[0] = beta*dt / (dto * (dt + dto));
+        for(int m = 1; m < nEqs; m++){
+            a1[m] = c1;
+            a2[m] = c2;
+            a3[m] = c3;
+        }
+
+        a1[0] = beta*c1;
+        a2[0] = beta*c2;
+        a3[0] = beta*c3;
         
         // vnitrni element - krivkovy i objemovy integral
         double[] V = new double[nBasis * nEqs];

@@ -49,10 +49,16 @@ public class BDF2 extends Implicit {
 
     // Generovani radku globalni matice a vektoru prave strany
     public void assembleJacobiMatrix(double dt, double dto) {
-        // coefs
-        double a1 = (2 * dt + dto) / (dt * (dt + dto));  // 3/(2*dt);
-        double a2 = -(dt + dto) / (dt * dto);  // -2/dt;
-        double a3 = dt / (dto * (dt + dto));  // 1/(2*dt);
+        // coefs, dto <= 0 means that the previous time level is not known
+        // (first step of the computation), the step is then BDF1
+        double a1 = 1 / dt;
+        double a2 = -1 / dt;
+        double a3 = 0;
+        if (dto > 0) {
+            a1 = (2 * dt + dto) / (dt * (dt + dto));  // 3/(2*dt);
+            a2 = -(dt + dto) / (dt * dto);  // -2/dt;
+            a3 = dt / (dto * (dt + dto));  // 1/(2*dt);
+        }
 
         // vnitrni element - krivkovy i objemovy integral
         double[] V = new double[nBasis * nEqs];

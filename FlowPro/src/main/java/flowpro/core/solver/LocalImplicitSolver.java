@@ -106,6 +106,8 @@ public class LocalImplicitSolver extends MasterSolver {
 		double[] x = new double[dofs];
 		StopWatch watch = new StopWatch();
 
+		// previous time step, dto <= 0 until the first step is finished (the previous
+		// time level is not known, BDF2 makes the first step as BDF1)
 		double dto = -1;
 		boolean converges = true;
 		int totalSteps = state.steps + par.steps;
@@ -144,9 +146,6 @@ public class LocalImplicitSolver extends MasterSolver {
 
 			// nastaveni dt
 			double dt = state.getTimeStep(elems);
-			if (dto <= 0) {
-				dto = dt;
-			}
 			if (state.t + dt > par.tEnd) {
 				dt = par.tEnd - state.t;
 			}

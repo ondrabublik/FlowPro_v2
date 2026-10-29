@@ -39,7 +39,10 @@ Sestavení: `gradlew build` (Java 17+, testováno s Javou 21). Výsledné JARy j
 * `Integration.initNeighbours` – hraniční stěna si nesla souseda z předchozí stěny.
 * `Domain` – pole `save`/`save1` byla přealokovaná a doplněná nulami (element 0 chybně označen).
 * **Periodický posun** se škáluje stejně jako síť (`meshScale/lRef`, `scaleDims`).
-* **DDG `beta0`** se trvale přepisoval podle globálního řádu; nyní lokálně podle řádu elementu.
+* **DDG `beta0`** (metoda `DG`) se trvale přepisoval podle globálního řádu; nyní podle řádu elementů na stěně – skokový člen se vynechá jen na stěně mezi dvěma elementy řádu 1 (resp. na hranici elementu řádu 1). Hodnota je tak na obou stranách stěny stejná a tok je konzervativní (první verze opravy brala jen řád vlastního elementu). Varianty `DGpure*` beze změny: tam se používá maximální řád sítě, což je na stěně symetrické.
+* **`blockilu0`** nefungoval vůbec: bloky se kopírovaly jen jednou před sestavením matice (rozkládaly se nuly), výsledek rozkladu se zahazoval (přiřazení do lokální proměnné), vynechával se předchozí element a bloky se braly netransponované. Přepsáno; na GAMM dává stejný výsledek jako `ilu0` (rozdíl 7e−10).
+* **Adaptivní CFL** (`CFL <= 0`): počáteční residuum `Double.MAX_VALUE` prošlo „filtrem“ a ~300 kroků zvětšovalo CFL 1,3× v každém kroku bez ohledu na konvergenci (GAMM: CFL 5e22), potom CFL při pomalé konvergenci klesalo 0,8× za krok. Nyní SER: `CFL_n = CFL_{n-1}·res_{n-1}/res_n`, změna max. 2× za krok, rozsah `[1, maxCFL]` (nový parametr, výchozí 1e4); po selhání řešiče se v dalším kroku CFL nezvětšuje.
+* **Start BDF2:** první krok počítal s `Wo2 = Wo`, tj. `(3/2)(W−Wo)/dt = R` – chyba O(dt) v prvním kroku a celkově jen 1. řád. Nyní je první krok výpočtu (i po `continueComputation`) BDF1, stejně i rychlost sítě. Ověřeno na GAMM (pevné `dt`, t = 0,1, Newton do 1e−11): poměr rozdílů při půlení `dt` 3,88 / 3,99 / 4,00 (dříve ≈ 2,1). Paralelní řešiče posílají slave procesům `{dt, dto}` (dříve si `dto` odvozovaly samy a ve druhé Newtonově iteraci bylo `dto = dt`) a opraveno prohození `dt`/`dto` při výpočtu rychlosti sítě ve slave procesech.
 * `shock_senzor2` sčítal hodnotu souseda do `rhoL` místo `rhoR`.
 * **Počáteční podmínka ze skriptu `initScript.js`** v původní verzi s GraalJS nefungovala (JS dostal nepřístupné Java pole → NaN, vrácené pole nešlo převést). Nyní funkce `init(x)` dostane JS pole a může vrátit pole i řetězec. Chybějící `init` nebo chyba ve skriptu = jasná chyba (dřív `NullPointerException` nebo tichý přechod na konstantní stav).
 * `LocalImplicitSolver`: `solveTime = +…` → `+=`; ukládání podle `timeSaveRate` po pokračování výpočtu neukládalo v každém kroku.
@@ -162,7 +165,7 @@ a pro dávkový režim.
 ## 5. Co zůstalo beze změny (doporučení z analýzy)
 
 * Jacobiho matice konečnými diferencemi s absolutním krokem `h = 1e-8` (doporučen relativní krok nebo complex-step).
-* Škálování interior penalty (`p²/h`), vlastní čísla Rusanova toku v ALE, start BDF2 bez BDF1 kroku.
+* Škálování interior penalty (`p²/h`), vlastní čísla Rusanova toku v ALE.
 * Počáteční podmínka ze skriptu je po elementech konstantní (hodnota v těžišti).
 * Mrtvý kód (`Element0.java`, zakomentované řešiče), duplicity variant `DGpure*`, veřejná měnitelná pole.
 * Automatické testy (projekt žádné nemá) – ověření níže bylo provedeno ručně.

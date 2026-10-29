@@ -6,44 +6,59 @@ import java.io.Serializable;
  * Controls the evolution of the CFL number. One implementation shared by all
  * the solvers and by {@link flowpro.core.State}.
  *
+ * Fixed CFL: the CFL number is increased linearly to the given value in 20
+ * steps. Adaptive CFL: switched evolution relaxation (SER),
+ * CFL_n = CFL_{n-1} * res_{n-1} / res_n, the change in one step is limited to
+ * the interval [1/MAX_FACTOR, MAX_FACTOR] and the CFL number to [startCFL, maxCFL].
+ *
  * @author obublik
  */
 public class CFLSetup implements Serializable {
 
-    double maxCFL;
-    boolean varyCFL;
-    double res = -1;
-    double alfa = 0.1;
-    int logResOld;
+    static final double MAX_FACTOR = 2;
 
-    public CFLSetup(double maxCFL, boolean varyCFL) {
-        this.maxCFL = maxCFL;
+    // fixed CFL: the CFL number, adaptive CFL: the initial CFL number
+    double cfl;
+    boolean varyCFL;
+    // upper limit of the adaptive CFL number
+    double maxVaryCFL;
+    // residuum of the previous step, negative when unknown
+    double resOld = -1;
+
+    public CFLSetup(double cfl, boolean varyCFL, double maxVaryCFL) {
+        this.cfl = cfl;
         this.varyCFL = varyCFL;
+        this.maxVaryCFL = maxVaryCFL;
     }
 
     public double getCFL(double actualCFL, double residuum) {
-        if (varyCFL) {
-            if (res == -1) {
-                res = residuum;
-                logResOld = 1000;
-            } else {
-                res = alfa * res + (1 - alfa) * residuum; // low pass filter
-            }
-            int logRes = (int) Math.log(res);
-            if (logRes < logResOld) {
-                maxCFL *= 1.3;
-            } else {
-                maxCFL *= 0.8;
-            }
-            logResOld = logRes;
-            actualCFL += maxCFL / 5;
-        } else {
-            actualCFL += maxCFL / 20;
+        if (!varyCFL) {
+            return Math.min(actualCFL + cfl / 20, cfl);
         }
-        return Math.min(actualCFL, maxCFL);
+
+        // the initial residuum is Double.MAX_VALUE, i.e. not known
+        boolean isResiduumKnown = residuum > 0 && residuum < Double.MAX_VALUE;
+        if (actualCFL <= 0) {
+            resOld = isResiduumKnown ? residuum : -1;
+            return cfl;
+        }
+
+        double factor = 1;
+        if (isResiduumKnown && resOld > 0) {
+            factor = Math.max(1 / MAX_FACTOR, Math.min(resOld / residuum, MAX_FACTOR));
+        }
+        resOld = isResiduumKnown ? residuum : -1;
+
+        // the residuum may grow e.g. in transients, thus the CFL number does not
+        // decrease below the initial value (only a failure of the solver does so)
+        double lowerLimit = Math.min(actualCFL, cfl);
+        return Math.max(lowerLimit, Math.min(actualCFL * factor, maxVaryCFL));
     }
 
     public double reduceCFL(double actualCFL) {
+        // the residuum of the failed step is not comparable, the CFL number is not
+        // increased in the next step
+        resOld = -1;
         return actualCFL / 1.5;
     }
 }

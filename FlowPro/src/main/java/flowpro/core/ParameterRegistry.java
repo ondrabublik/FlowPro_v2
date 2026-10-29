@@ -86,6 +86,7 @@ public final class ParameterRegistry {
         add("timeOrder", Type.INT, "1", "discretisation", "order of the time integration (BDF: 1-2, RK: 2-4)");
         add("CFL", Type.DOUBLE, "", "discretisation", "CFL number, CFL <= 0 switches the adaptive CFL on "
                 + "(either CFL or dt has to be given)");
+        add("maxCFL", Type.DOUBLE, "1e4", "discretisation", "upper limit of the adaptive CFL (CFL <= 0)");
         add("dt", Type.DOUBLE, "", "discretisation", "fixed time step (either CFL or dt has to be given)");
         add("volumeQuardatureOrder", Type.INT, "", "discretisation", "order of the volume quadrature (default = order of the element)");
         add("faceQuardatureOrder", Type.INT, "", "discretisation", "order of the face quadrature (default = order of the element)");

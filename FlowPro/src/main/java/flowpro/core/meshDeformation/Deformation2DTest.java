@@ -34,7 +34,7 @@ public class Deformation2DTest extends Deformation {
         double a2 = -1.0 / dt;
         double a3 = 0;
 
-        if (timeOrder > 1) {
+        if (timeOrder > 1 && dto > 0) { // dto <= 0: first step, BDF1
             a1 = (2 * dt + dto) / (dt * (dt + dto));  // 3/(2*dt); 
             a2 = -(dt + dto) / (dt * dto);  // -2/dt;
             a3 = dt / (dto * (dt + dto));  // 1/(2*dt);

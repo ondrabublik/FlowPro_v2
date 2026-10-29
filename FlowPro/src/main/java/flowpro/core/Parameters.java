@@ -33,6 +33,7 @@ public class Parameters implements Serializable {
 
     public double cfl;        // max CFL cislo
     public boolean varyCFL;
+    public double maxCFL;     // upper limit of the adaptive CFL
 	public double dt;
 	public boolean isTimeStepFixed;
     public int order;         // rad metody v prostoru
@@ -209,6 +210,7 @@ public class Parameters implements Serializable {
 				} else {
 					varyCFL = false;
 				}
+				maxCFL = has("maxCFL") ? props.getDouble("maxCFL") : 1e4;
 			} else if (has("dt")) {
 				isTimeStepFixed = true;
 				dt = props.getDouble("dt");

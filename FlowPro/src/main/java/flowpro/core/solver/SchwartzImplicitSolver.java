@@ -136,8 +136,8 @@ public class SchwartzImplicitSolver extends MasterSolver {
         tempWatch.suspend();
         tempWatch2.start();
         tempWatch2.suspend();
-        double dto = 1;
-        CFLSetup cflObj = new CFLSetup(par.cfl, par.varyCFL);
+        double dto = -1; // previous time step, <= 0 until the first step is finished
+        CFLSetup cflObj = new CFLSetup(par.cfl, par.varyCFL, par.maxCFL);
         int tsr = firstTimeSaveIndex(state.t, par.timeSaveRate); // for time save rate
 
         try {
@@ -212,7 +212,7 @@ public class SchwartzImplicitSolver extends MasterSolver {
                         mpi.waitForAll(Tag.MESH_POSITION_UPDATED);
                     }
 
-                    mpi.sendAll(new MPIMessage(Tag.ASSEMBLE_AND_SOLVE, dt));
+                    mpi.sendAll(new MPIMessage(Tag.ASSEMBLE_AND_SOLVE, new double[]{dt, dto}));
                     convergesNewton = true;
                     for (int d = 0; d < nDoms; ++d) {
                         GmresResult results = (GmresResult) mpi.receive(d, Tag.GMRES_RESULT).getData();

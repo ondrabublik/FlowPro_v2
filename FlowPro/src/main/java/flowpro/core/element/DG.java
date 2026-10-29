@@ -345,8 +345,11 @@ public class DG extends Element {
             // viscid flux in integration point
             // DDG
             if (eqn.isDiffusive()) {
-                // DDG, the jump term is not used for piecewise constant elements
-                double beta = elemType.order == 1 ? 0 : beta0;
+                // DDG, the jump term is not used between piecewise constant elements
+                // (their gradient is given by the reconstruction), the value must be
+                // the same on both sides of the face, otherwise the flux is not conservative
+                boolean isFVMFace = elemType.order == 1 && (TT[k] < 0 || elems[TT[k]].elemType.order == 1);
+                double beta = isFVMFace ? 0 : beta0;
                 double[] Wc = new double[nEqs];
                 double[] dWc = new double[nEqs * dim];
                 for (int m = 0; m < nEqs; m++) {

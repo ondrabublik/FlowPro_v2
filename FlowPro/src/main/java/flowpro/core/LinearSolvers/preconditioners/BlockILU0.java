@@ -10,21 +10,30 @@ import flowpro.core.LinearSolvers.SparseMatrix;
 import flowpro.core.element.Element;
 import flowpro.core.Parameters;
 import flowpro.core.element.Implicit;
+import java.util.Arrays;
 
 /**
+ * Block ILU(0) preconditioner. One block contains all degrees of freedom of one
+ * element, the sparsity pattern of the factorisation is the block pattern of
+ * the matrix (element and its face neighbours).
  *
  * @author obublik
  */
 public class BlockILU0 extends Preconditioner {
 
-    SparseMatrix A;
     int nThreads;
-    int[][] indexes;
-    double[][][] diagonalInverse;
-    double[][][][] ILU;
-    double[][] y;
     Element[] elems;
     int nElem;
+    // column blocks of block row i (ascending element indexes, including i)
+    int[][] cols;
+    // position of the diagonal block in cols[i]
+    int[] diag;
+    // blocks[i][k][r][c] = entry in row r of element i and column c of element cols[i][k],
+    // after factor() the blocks left of the diagonal hold L, the others U
+    double[][][][] blocks;
+    // inverses of the diagonal blocks of U
+    double[][][] diagInverse;
+    double[][] y;
 
     BlockILU0(Parameters par) {
         nThreads = par.nThreads;
@@ -34,86 +43,69 @@ public class BlockILU0 extends Preconditioner {
     public void setMatrix(SparseMatrix A) {
         elems = A.getElems();
         nElem = elems.length;
-        diagonalInverse = new double[nElem][][];
-        ILU = new double[nElem][][][];
-        indexes = new int[nElem][];
+        cols = new int[nElem][];
+        diag = new int[nElem];
+        blocks = new double[nElem][][][];
+        diagInverse = new double[nElem][][];
+        y = new double[nElem][];
+
         for (int i = 0; i < nElem; i++) {
             Element elem = elems[i];
-            int nNeigh = 1;
-            for (int k = 0; k < elem.nFaces; k++) {
-                if (elem.TT[k] > -1) {
-                    nNeigh++;
-                }
+            if (!elem.insideComputeDomain) {
+                cols[i] = new int[0];
+                blocks[i] = new double[0][][];
+                continue;
             }
-            ILU[i] = new double[nNeigh][][];
-            indexes[i] = new int[nNeigh];
-            // diagonal block
+            int[] row = new int[elem.nFaces + 1];
             int s = 0;
-            int ne = elem.nBasis * elem.getNEqs();
-            ILU[i][s] = new double[ne][ne];
-            double[][] AuxILU = ILU[i][s];
-            double[][] AuxA = ((Implicit)elem.ti).ADiag;
-            for (int n = 0; n < ne; n++) {
-                System.arraycopy(AuxA[n], 0, AuxILU[n], 0, ne);
-            }
-            indexes[i][s] = elem.index;
-            s++;
-            // out of diagonal block
+            row[s++] = i;
             for (int k = 0; k < elem.nFaces; k++) {
-                if (elem.TT[k] > -1) {
-                    int me = elems[elem.TT[k]].nBasis * elems[elem.TT[k]].getNEqs();
-                    ILU[i][s] = new double[ne][me];
-                    AuxILU = ILU[i][s];
-                    AuxA = ((Implicit)elem.ti).ANeighs[k].A;
-                    for (int n = 0; n < ne; n++) {
-                        System.arraycopy(AuxA[n], 0, AuxILU[n], 0, me);
-                    }
-                    indexes[i][s] = elems[elem.TT[k]].index;
-                    s++;
+                int t = elem.TT[k];
+                if (t > -1 && elems[t].insideComputeDomain && !contains(row, s, t)) {
+                    row[s++] = t;
                 }
             }
-        }
+            cols[i] = Arrays.copyOf(row, s);
+            Arrays.sort(cols[i]);
+            diag[i] = Arrays.binarySearch(cols[i], i);
 
-        // sorting
-        for (int i = 0; i < nElem; i++) {
-            // bubble sort
-            for (int j = 0; j < indexes[i].length - 1; j++) {
-                for (int k = 0; k < indexes[i].length - 1; k++) {
-                    if (indexes[i][k] > indexes[i][k + 1]) {
-                        int pom = indexes[i][k];
-                        indexes[i][k] = indexes[i][k + 1];
-                        indexes[i][k + 1] = pom;
-
-                        double[][] Apom = ILU[i][k];
-                        ILU[i][k] = ILU[i][k + 1];
-                        ILU[i][k + 1] = Apom;
-                    }
-                }
+            int n = blockSize(i);
+            blocks[i] = new double[s][][];
+            for (int k = 0; k < s; k++) {
+                blocks[i][k] = new double[n][blockSize(cols[i][k])];
             }
-        }
-
-        y = new double[nElem][];
-        for (int i = 0; i < nElem; i++) {
-            y[i] = new double[elems[i].nBasis * elems[i].getNEqs()];
+            y[i] = new double[n];
         }
     }
 
     @Override
     public void factor() {
-        for (int i = 1; i < nElem; i++) {
-            int[] row = indexes[i];
-            for (int k = 0; k < row.length; k++) {
-                double[][] iAkk = Mat.invert(ILU[row[k]][find(row[k], row[k])]);
-                if (row[k] < i - 1) {
-                    double[][] Aik = ILU[i][k];
-                    Aik = Mat.times(Aik, iAkk);
-                    for (int j = 0; j < row.length; j++) {
-                        int kj = find(row[k], row[j]);
-                        if (row[j] > row[k] && kj != -1) {
-                            double[][] Aij = ILU[i][j];
-                            double[][] Akj = ILU[row[k]][kj];
-                            Aij = Mat.minus(Aij, Mat.times(Aik, Akj));
-                        }
+        // copy the current values of the matrix, the element Jacobi matrices are
+        // stored transposed (ADiag[column][row], ANeighs[k].A[column][row])
+        flowpro.core.parallel.ParallelLoop.forEach(nElem, nThreads, i -> copyBlocks(i));
+
+        for (int i = 0; i < nElem; i++) {
+            int[] row = cols[i];
+            if (row.length == 0) {
+                continue;
+            }
+            for (int kk = 0; kk < diag[i]; kk++) { // blocks left of the diagonal, ascending
+                int k = row[kk];
+                double[][] L = Mat.times(blocks[i][kk], diagInverse[k]);
+                blocks[i][kk] = L;
+                for (int jj = kk + 1; jj < row.length; jj++) {
+                    int kj = Arrays.binarySearch(cols[k], row[jj]);
+                    if (kj >= 0) {
+                        subtractProduct(blocks[i][jj], L, blocks[k][kj]);
+                    }
+                }
+            }
+            diagInverse[i] = Mat.invert(blocks[i][diag[i]]);
+            for (double[] r : diagInverse[i]) {
+                for (double v : r) {
+                    if (!Double.isFinite(v)) {
+                        throw new ArithmeticException("singular diagonal block of element "
+                                + i + " during block ILU process");
                     }
                 }
             }
@@ -122,65 +114,114 @@ public class BlockILU0 extends Preconditioner {
 
     @Override
     public void apply(double[] x, double[] b) {
+        // forward substitution L*y = b
         for (int i = 0; i < nElem; i++) {
-            int[] row = indexes[i];
-            double[] yp = y[i];
-            int[] gi = elems[i].gIndex;
-            for(int j = 0; j < gi.length; j++){
-                yp[j] = b[gi[j]];
+            int[] row = cols[i];
+            if (row.length == 0) {
+                continue;
             }
-            for (int k = 0; k < row.length; k++) {
-                if (row[k] < i) {
-                    double[][] L = ILU[i][k];
-                    double[] yL = y[row[k]];
-                    for (int s = 0; s < L.length; s++) {
-                        for (int t = 0; t < L[0].length; t++) {
-                            yp[s] -= L[s][t] * yL[t];
-                        }
+            double[] yi = y[i];
+            int[] gi = elems[i].gIndex;
+            for (int r = 0; r < yi.length; r++) {
+                yi[r] = b[gi[r]];
+            }
+            for (int kk = 0; kk < diag[i]; kk++) {
+                double[][] L = blocks[i][kk];
+                double[] yk = y[row[kk]];
+                for (int r = 0; r < yi.length; r++) {
+                    double sum = 0;
+                    for (int c = 0; c < yk.length; c++) {
+                        sum += L[r][c] * yk[c];
                     }
+                    yi[r] -= sum;
                 }
             }
         }
 
+        // backward substitution U*x = y
         for (int i = nElem - 1; i >= 0; i--) {
-            int[] row = indexes[i];
-            double[] sum = new double[y[i].length];
-            for (int k = 0; k < row.length; k++) {
-                if (row[k] > i) {
-                    int[] gi = elems[row[k]].gIndex;
-                    double[][] U = ILU[i][k];
-                    for (int s = 0; s < U.length; s++) {
-                        for (int t = 0; t < U[0].length; t++) {
-                            sum[s] += U[s][t] * x[gi[t]];
-                        }
+            int[] row = cols[i];
+            if (row.length == 0) {
+                continue;
+            }
+            double[] rhs = y[i].clone();
+            for (int jj = diag[i] + 1; jj < row.length; jj++) {
+                double[][] U = blocks[i][jj];
+                int[] gj = elems[row[jj]].gIndex;
+                for (int r = 0; r < rhs.length; r++) {
+                    double sum = 0;
+                    for (int c = 0; c < gj.length; c++) {
+                        sum += U[r][c] * x[gj[c]];
                     }
+                    rhs[r] -= sum;
                 }
             }
-            
-            double[][] iUii = Mat.invert(ILU[i][find(i, i)]);
-            double[] yp = y[i];
-            for(int j = 0; j < yp.length; j++){
-                sum[j] = yp[j] - sum[j];
-            }
-            sum = Mat.times(iUii, sum);
+            double[][] iU = diagInverse[i];
             int[] gi = elems[i].gIndex;
-            for(int j = 0; j < gi.length; j++){
-                x[gi[j]] = sum[j];
+            for (int r = 0; r < rhs.length; r++) {
+                double sum = 0;
+                for (int c = 0; c < rhs.length; c++) {
+                    sum += iU[r][c] * rhs[c];
+                }
+                x[gi[r]] = sum;
             }
         }
-
-//        for (int i = 0; i < b.length; i++) {
-//            x[i] = b[i];
-//        }
     }
 
-    private int find(int row, int column) {
-        int[] ind = indexes[row];
-        for (int i = 0; i < ind.length; i++) {
-            if (ind[i] == column) {
-                return i;
+    private void copyBlocks(int i) {
+        int[] row = cols[i];
+        if (row.length == 0) {
+            return;
+        }
+        for (double[][] block : blocks[i]) {
+            for (double[] r : block) {
+                Arrays.fill(r, 0.0);
             }
         }
-        return -1;
+        Element elem = elems[i];
+        Implicit ti = (Implicit) elem.ti;
+        addTransposed(blocks[i][diag[i]], ti.ADiag);
+        for (int k = 0; k < elem.nFaces; k++) {
+            int t = elem.TT[k];
+            if (t > -1 && elems[t].insideComputeDomain) {
+                addTransposed(blocks[i][Arrays.binarySearch(row, t)], ti.ANeighs[k].A);
+            }
+        }
+    }
+
+    private int blockSize(int i) {
+        return elems[i].nBasis * elems[i].getNEqs();
+    }
+
+    // B += At^T
+    private static void addTransposed(double[][] B, double[][] At) {
+        for (int r = 0; r < B.length; r++) {
+            for (int c = 0; c < B[r].length; c++) {
+                B[r][c] += At[c][r];
+            }
+        }
+    }
+
+    // C -= A * B
+    private static void subtractProduct(double[][] C, double[][] A, double[][] B) {
+        for (int r = 0; r < C.length; r++) {
+            for (int m = 0; m < B.length; m++) {
+                double a = A[r][m];
+                if (a != 0) {
+                    for (int c = 0; c < C[r].length; c++) {
+                        C[r][c] -= a * B[m][c];
+                    }
+                }
+            }
+        }
+    }
+
+    private static boolean contains(int[] a, int n, int value) {
+        for (int i = 0; i < n; i++) {
+            if (a[i] == value) {
+                return true;
+            }
+        }
+        return false;
     }
 }

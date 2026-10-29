@@ -56,7 +56,7 @@ public class State implements Serializable {
         transferTime = 0;
 
         maxCFL = par.cfl;
-        cflSetup = new CFLSetup(par.cfl, par.varyCFL);
+        cflSetup = new CFLSetup(par.cfl, par.varyCFL, par.maxCFL);
         isTimeStepFixed = par.isTimeStepFixed;
         dt0 = par.dt;
 

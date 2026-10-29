@@ -188,7 +188,7 @@ public class KSPSolverSlave extends SlaveSolver {
 
                     case Tag.ALE_NEW_MESH_POSITION:
                         ForcesAndDisplacements disp = (ForcesAndDisplacements) inMsg.getData();
-                        dfm.newMeshPositionAndVelocity(elems, elems[0].ti.getOrder(), disp.getDto(), disp.getDt(), disp.getMeshMove());
+                        dfm.newMeshPositionAndVelocity(elems, elems[0].ti.getOrder(), disp.getDt(), disp.getDto(), disp.getMeshMove());
                         if (isFirstIter) {
                             dfm.relaxFirstIteration(elems, disp.getDt());
                         }
@@ -203,14 +203,10 @@ public class KSPSolverSlave extends SlaveSolver {
                         break;
 
                     case Tag.ASSEMBLE: // inicialization if equation Ax=b
-                        // dalo by se tomu vyhnout kdybysme ukladali souboru dt a dto
-                        if (isFirstIter) {  //  if dt has not yet been set
-                            dt = (double) inMsg.getData();
-                            dto = dt;
-                        } else {  // if dt has already been set
-                            dto = dt;
-                            dt = (double) inMsg.getData();
-                        }
+                        // the master sends {dt, dto}, dto <= 0 in the first step (BDF2 makes BDF1 step)
+                        double[] timeSteps = (double[]) inMsg.getData();
+                        dt = timeSteps[0];
+                        dto = timeSteps[1];
 
                         // set equation object state
                         eqn.setState(mesh.t + dt, dt);
