@@ -134,7 +134,8 @@ java -jar FlowPro.jar help
 
 ## 4. Řízení výpočtu – `FlowProControl`
 
-`FlowProControl.bat` nebo `java -jar FlowProControl.jar`. FlowPro spouští jako samostatný proces.
+`FlowProControl.bat` v hlavním adresáři balíku (nebo v `FlowPro`), případně `java -jar FlowProControl.jar`.
+FlowPro spouští jako samostatný proces.
 Generátor sítí je součástí aplikace (záložka *Mesh*), `MeshGenerator2D.jar` zůstává jako samostatný nástroj
 a pro dávkový režim.
 

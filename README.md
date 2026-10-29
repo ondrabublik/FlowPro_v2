@@ -29,4 +29,6 @@ Other commands: `java -jar FlowPro.jar help` (`check`, `list`, `params`, `-p KEY
   2D mesh generator, editing of parameters, running, monitoring and stopping computations, preview of results
 * `MeshGenerator2D.jar` – the standalone 2D mesh generator (the same editor as in FlowProControl) and its batch mode
 
+After `gradlew build` start the GUI with `FlowProControl.bat` in the root directory of the package.
+
 The changes of version 2 are described (in Czech) in [ZMENY_V2.md](ZMENY_V2.md).
