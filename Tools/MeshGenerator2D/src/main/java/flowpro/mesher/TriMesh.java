@@ -1,7 +1,9 @@
 package flowpro.mesher;
 
+import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -167,6 +169,84 @@ public class TriMesh {
                 + "mean min angle %.1f deg, triangles with angle < 20 deg: %d",
                 points.length, triangles.length, boundaryEdges.size(), min, max,
                 triangles.length > 0 ? sum / triangles.length : 0, below20);
+    }
+
+    private static List<String[]> readRows(File file) throws IOException {
+        List<String[]> rows = new ArrayList<>();
+        try (BufferedReader r = new BufferedReader(new FileReader(file))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                line = line.trim();
+                if (!line.isEmpty()) {
+                    rows.add(line.split("\\s+"));
+                }
+            }
+        }
+        return rows;
+    }
+
+    /**
+     * Reads a mesh in the FlowPro format written by exportFlowPro.
+     *
+     * @return null if the mesh does not exist or if it is not a mesh of
+     * triangles only (it cannot be shown by the generator then)
+     */
+    public static TriMesh loadFlowPro(File meshDir) throws IOException {
+        File elementType = new File(meshDir, "elementType.txt");
+        if (!new File(meshDir, "elements.txt").isFile() || !elementType.isFile()) {
+            return null;
+        }
+        for (String[] row : readRows(elementType)) {
+            if (!row[0].equals("3")) {
+                return null;
+            }
+        }
+        try {
+            List<String[]> rows = readRows(new File(meshDir, "vertices.txt"));
+            double[][] points = new double[rows.size()][2];
+            for (int i = 0; i < points.length; i++) {
+                points[i][0] = Double.parseDouble(rows.get(i)[0]);
+                points[i][1] = Double.parseDouble(rows.get(i)[1]);
+            }
+            rows = readRows(new File(meshDir, "elements.txt"));
+            int[][] triangles = new int[rows.size()][3];
+            for (int i = 0; i < triangles.length; i++) {
+                for (int k = 0; k < 3; k++) {
+                    triangles[i][k] = Integer.parseInt(rows.get(i)[k]);
+                }
+            }
+            Map<Long, Integer> ale = new HashMap<>();
+            File aleFile = new File(meshDir, "boundaryTypeALE.txt");
+            if (aleFile.isFile()) {
+                for (String[] row : readRows(aleFile)) {
+                    ale.put(key(Integer.parseInt(row[1]), Integer.parseInt(row[2])), Integer.parseInt(row[0]));
+                }
+            }
+            List<int[]> boundary = new ArrayList<>();
+            File bt = new File(meshDir, "boundaryType.txt");
+            if (bt.isFile()) {
+                for (String[] row : readRows(bt)) {
+                    int a = Integer.parseInt(row[1]), b = Integer.parseInt(row[2]);
+                    boundary.add(new int[]{Integer.parseInt(row[0]), a, b, ale.getOrDefault(key(a, b), 0)});
+                }
+            }
+            TriMesh mesh = new TriMesh(points, triangles, boundary);
+            File nb = new File(meshDir, "neighbors.txt");
+            if (nb.isFile()) {
+                rows = readRows(nb);
+                if (rows.size() == triangles.length) {
+                    mesh.neighbours = new int[triangles.length][3];
+                    for (int i = 0; i < triangles.length; i++) {
+                        for (int k = 0; k < 3; k++) {
+                            mesh.neighbours[i][k] = Integer.parseInt(rows.get(i)[k]);
+                        }
+                    }
+                }
+            }
+            return mesh;
+        } catch (RuntimeException ex) {
+            throw new IOException("the mesh in " + meshDir + " cannot be read: " + ex.getMessage(), ex);
+        }
     }
 
     /**

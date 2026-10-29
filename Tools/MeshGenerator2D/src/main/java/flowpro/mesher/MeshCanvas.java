@@ -46,6 +46,7 @@ public class MeshCanvas extends JPanel {
     private double[] dragStart, dragCurrent;
     private double[] mouseWorld = {0, 0};
     private int lastScreenX, lastScreenY;
+    private boolean fitPending = false;
 
     public boolean showMesh = true;
     public boolean snapToGrid = false;
@@ -201,19 +202,35 @@ public class MeshCanvas extends JPanel {
     }
 
     public void zoomToFit() {
-        if (geo.loops.isEmpty() || getWidth() == 0) {
+        // the canvas has no size yet (e.g. a hidden tab), fit when it is painted
+        fitPending = getWidth() == 0;
+        double[] bb = geo.loops.isEmpty() ? meshBoundingBox() : geo.boundingBox();
+        if (bb == null || getWidth() == 0) {
             scale = 200;
             offsetX = 60;
             offsetY = Math.max(getHeight() - 60, 300);
             repaint();
             return;
         }
-        double[] bb = geo.boundingBox();
         double w = Math.max(bb[2] - bb[0], 1e-12), h = Math.max(bb[3] - bb[1], 1e-12);
         scale = 0.9 * Math.min(getWidth() / w, getHeight() / h);
         offsetX = getWidth() / 2.0 - scale * (bb[0] + bb[2]) / 2;
         offsetY = getHeight() / 2.0 + scale * (bb[1] + bb[3]) / 2;
         repaint();
+    }
+
+    private double[] meshBoundingBox() {
+        if (mesh == null || mesh.points.length == 0) {
+            return null;
+        }
+        double[] bb = {Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, Double.NEGATIVE_INFINITY};
+        for (double[] p : mesh.points) {
+            bb[0] = Math.min(bb[0], p[0]);
+            bb[1] = Math.min(bb[1], p[1]);
+            bb[2] = Math.max(bb[2], p[0]);
+            bb[3] = Math.max(bb[3], p[1]);
+        }
+        return bb;
     }
 
     // ---------------------------------------------------------------- picking
@@ -452,6 +469,9 @@ public class MeshCanvas extends JPanel {
 
     @Override
     protected void paintComponent(Graphics g0) {
+        if (fitPending && getWidth() > 0) {
+            zoomToFit();
+        }
         super.paintComponent(g0);
         Graphics2D g = (Graphics2D) g0;
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);

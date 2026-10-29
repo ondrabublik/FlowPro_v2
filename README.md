@@ -25,7 +25,8 @@ java -jar FlowPro.jar run -g examples/GAMM -s default
 Other commands: `java -jar FlowPro.jar help` (`check`, `list`, `params`, `-p KEY=VALUE`, ...).
 
 ## GUI tools (version 2)
-* `FlowProControl.jar` – editing of parameters, running, monitoring and stopping computations, preview of results
-* `MeshGenerator2D.jar` – generator of 2D unstructured triangular meshes in the FlowPro format
+* `FlowProControl.jar` – the main GUI: tasks in `simulations/GUI` (one mesh and several computations per task),
+  2D mesh generator, editing of parameters, running, monitoring and stopping computations, preview of results
+* `MeshGenerator2D.jar` – the standalone 2D mesh generator (the same editor as in FlowProControl) and its batch mode
 
 The changes of version 2 are described (in Czech) in [ZMENY_V2.md](ZMENY_V2.md).

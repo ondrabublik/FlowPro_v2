@@ -1,9 +1,21 @@
-// Standalone Swing application for preparing, running, monitoring and
-// stopping FlowPro computations. It has no dependencies, FlowPro is started
-// as a separate process (java -jar FlowPro.jar run ...).
+// Swing application: tasks (simulations/GUI/NAME, one mesh and several
+// computations), 2D mesh generator, editing of parameters, running,
+// monitoring and stopping of FlowPro computations. FlowPro is started as a
+// separate process (java -jar FlowPro.jar run ...). The classes of the mesh
+// generator are packed into the jar, so it has no runtime dependencies.
+
+dependencies {
+    implementation project(':MeshGenerator2D')
+}
 
 jar {
     manifest {
         attributes('Main-Class': 'flowpro.control.FlowProControl')
     }
+    dependsOn configurations.runtimeClasspath
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    exclude 'META-INF/MANIFEST.MF'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }

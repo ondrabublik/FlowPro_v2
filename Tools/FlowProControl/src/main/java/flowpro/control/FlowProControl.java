@@ -1,5 +1,8 @@
 package flowpro.control;
 
+import flowpro.mesher.Geometry;
+import flowpro.mesher.MeshEditorPanel;
+import flowpro.mesher.TriMesh;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Desktop;
@@ -16,15 +19,14 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.prefs.Preferences;
 import javax.swing.BorderFactory;
+import javax.swing.ButtonGroup;
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
@@ -34,6 +36,7 @@ import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JRadioButton;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JSplitPane;
@@ -46,31 +49,39 @@ import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.UIManager;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 
 /**
- * Graphical control of FlowPro computations: selection of the simulation,
- * editing of parameters.txt, running (FlowPro is started as a separate
- * process), monitoring of the convergence, graceful stop and a preview of the
- * mesh and of the results.
+ * Graphical environment of FlowPro: tasks (simulations/GUI/NAME, one mesh and
+ * any number of computations), generation of the 2D mesh of a task, editing
+ * of parameters.txt of the computations, running (FlowPro is started as a
+ * separate process), monitoring of the convergence, graceful stop and a
+ * preview of the mesh and of the results.
  *
  * @author obublik
  */
 public class FlowProControl extends JFrame {
 
+    private static final String TITLE = "FlowPro";
     private static final String STOP_FILE_NAME = "STOP";
     private final Preferences prefs = Preferences.userNodeForPackage(FlowProControl.class);
 
     private File flowProDir;
 
-    // simulations
-    private final DefaultMutableTreeNode root = new DefaultMutableTreeNode("simulations");
+    // tasks
+    private final DefaultMutableTreeNode root = new DefaultMutableTreeNode("tasks");
     private final DefaultTreeModel treeModel = new DefaultTreeModel(root);
     private final JTree tree = new JTree(treeModel);
-    private String geometry, simulation;
+    private boolean ignoreSelection = false;
+    private String task, computation;
+
+    // mesh
+    private final MeshEditorPanel meshEditor = new MeshEditorPanel();
+    private final JLabel meshHeader = new JLabel(" ");
 
     // parameters
     private ParameterFile parameterFile;
@@ -91,7 +102,8 @@ public class FlowProControl extends JFrame {
     private final JButton stopButton = new JButton("Stop (save and finish)");
     private final JButton killButton = new JButton("Kill");
     private Process process;
-    private String processSimulationPath;
+    private String processComputationPath;
+    private String processLabel;
 
     // monitoring
     private final ResiduumChart chart = new ResiduumChart();
@@ -99,9 +111,10 @@ public class FlowProControl extends JFrame {
     private final JComboBox<String> componentCombo = new JComboBox<>();
     private final JLabel resultInfo = new JLabel(" ");
     private final JTabbedPane tabs = new JTabbedPane();
+    private JPanel meshTab, parametersTab, runTab, resultTab;
 
     public FlowProControl(File flowProDir) {
-        super("FlowPro Control");
+        super(TITLE);
         this.flowProDir = flowProDir;
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
@@ -111,22 +124,23 @@ public class FlowProControl extends JFrame {
             }
         });
 
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, createSimulationPanel(), createTabs());
-        split.setDividerLocation(270);
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, createTaskPanel(), createTabs());
+        split.setDividerLocation(260);
         add(split, BorderLayout.CENTER);
 
-        setSize(1350, 860);
+        setSize(1450, 900);
         setLocationRelativeTo(null);
 
         refreshTree();
         loadParameterDescriptions();
+        updateMeshHeader();
 
         Timer timer = new Timer(1000, e -> monitor());
         timer.start();
     }
 
-    // =================================================================== simulations
-    private JPanel createSimulationPanel() {
+    // =================================================================== tasks
+    private JPanel createTaskPanel() {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         JLabel dirLabel = new JLabel();
@@ -144,20 +158,28 @@ public class FlowProControl extends JFrame {
         c.insets = new Insets(2, 0, 2, 0);
         c.gridx = 0;
         c.gridy = 0;
+        buttons.add(button("New task...", this::newTask), c);
+        c.gridy++;
+        buttons.add(button("New computation...", this::newComputation), c);
+        c.gridy++;
+        buttons.add(button("Rename...", this::rename), c);
+        c.gridy++;
+        buttons.add(button("Delete...", this::delete), c);
+        c.gridy++;
+        buttons.add(button("Open folder", this::openFolder), c);
+        c.gridy++;
         buttons.add(button("Refresh", this::refreshTree), c);
         c.gridy++;
-        buttons.add(button("New simulation (copy)...", this::newSimulation), c);
-        c.gridy++;
-        buttons.add(button("Open simulation folder", this::openFolder), c);
-        c.gridy++;
-        buttons.add(button("2D mesh generator", this::startMeshGenerator), c);
-        c.gridy++;
         buttons.add(button("Change FlowPro directory...", () -> {
+            if (!confirmLeaveTask() || !confirmLeaveComputation()) {
+                return;
+            }
             File dir = chooseFlowProDir(this, flowProDir);
             if (dir != null) {
                 flowProDir = dir;
                 prefs.put("flowProDir", dir.getAbsolutePath());
                 updateDirLabel(dirLabel);
+                select(null, null);
                 refreshTree();
                 loadParameterDescriptions();
             }
@@ -167,7 +189,8 @@ public class FlowProControl extends JFrame {
     }
 
     private void updateDirLabel(JLabel label) {
-        label.setText("<html><b>FlowPro:</b> " + flowProDir.getAbsolutePath() + "</html>");
+        label.setText("<html><b>Tasks</b> (simulations/" + Tasks.DIR + ")</html>");
+        label.setToolTipText(Tasks.tasksDir(flowProDir).getAbsolutePath());
     }
 
     private static JButton button(String text, Runnable action) {
@@ -176,172 +199,383 @@ public class FlowProControl extends JFrame {
         return b;
     }
 
-    private static final class SimNode {
+    /**
+     * node of the tree: a task (computation == null) or its computation
+     */
+    private static final class TaskNode {
 
-        final String geometry, simulation;
+        final String task, computation;
+        final String label;
 
-        SimNode(String geometry, String simulation) {
-            this.geometry = geometry;
-            this.simulation = simulation;
+        TaskNode(String task, String computation, String label) {
+            this.task = task;
+            this.computation = computation;
+            this.label = label;
+        }
+
+        boolean is(String t, String c) {
+            return task.equals(t) && (computation == null ? c == null : computation.equals(c));
         }
 
         @Override
         public String toString() {
-            return simulation == null ? geometry : simulation;
+            return label;
         }
     }
 
     private void refreshTree() {
         root.removeAllChildren();
-        List<String> geometries = new ArrayList<>();
-        collectGeometries(new File(flowProDir, "simulations"), "", geometries, 0);
-        for (String geo : geometries) {
-            DefaultMutableTreeNode geoNode = new DefaultMutableTreeNode(new SimNode(geo, null));
-            File[] dirs = new File(new File(flowProDir, "simulations"), geo).listFiles(File::isDirectory);
-            if (dirs != null) {
-                Arrays.sort(dirs);
-                for (File dir : dirs) {
-                    if (new File(dir, "parameters.txt").isFile()) {
-                        geoNode.add(new DefaultMutableTreeNode(new SimNode(geo, dir.getName())));
-                    }
-                }
+        for (String name : Tasks.list(flowProDir)) {
+            File dir = new File(Tasks.tasksDir(flowProDir), name);
+            DefaultMutableTreeNode taskNode = new DefaultMutableTreeNode(
+                    new TaskNode(name, null, Tasks.hasMesh(dir) ? name : name + "  (no mesh)"));
+            for (String comp : Tasks.computations(dir)) {
+                String label = isRunningIn(new File(dir, comp)) ? comp + "  (running)" : comp;
+                taskNode.add(new DefaultMutableTreeNode(new TaskNode(name, comp, label)));
             }
-            root.add(geoNode);
+            root.add(taskNode);
         }
         treeModel.reload();
-        // restore the selection
-        if (geometry != null) {
+        for (int i = 0; i < root.getChildCount(); i++) {
+            tree.expandPath(new TreePath(((DefaultMutableTreeNode) root.getChildAt(i)).getPath()));
+        }
+        selectInTree(task, computation);
+    }
+
+    private void selectInTree(String t, String c) {
+        ignoreSelection = true;
+        try {
+            tree.clearSelection();
+            if (t == null) {
+                return;
+            }
             for (int i = 0; i < root.getChildCount(); i++) {
-                DefaultMutableTreeNode g = (DefaultMutableTreeNode) root.getChildAt(i);
-                for (int j = 0; j < g.getChildCount(); j++) {
-                    DefaultMutableTreeNode s = (DefaultMutableTreeNode) g.getChildAt(j);
-                    SimNode n = (SimNode) s.getUserObject();
-                    if (n.geometry.equals(geometry) && n.simulation.equals(simulation)) {
-                        tree.setSelectionPath(new TreePath(s.getPath()));
-                        tree.scrollPathToVisible(new TreePath(s.getPath()));
+                DefaultMutableTreeNode taskNode = (DefaultMutableTreeNode) root.getChildAt(i);
+                if (((TaskNode) taskNode.getUserObject()).is(t, c)) {
+                    tree.setSelectionPath(new TreePath(taskNode.getPath()));
+                }
+                for (int j = 0; j < taskNode.getChildCount(); j++) {
+                    DefaultMutableTreeNode node = (DefaultMutableTreeNode) taskNode.getChildAt(j);
+                    if (((TaskNode) node.getUserObject()).is(t, c)) {
+                        TreePath path = new TreePath(node.getPath());
+                        tree.setSelectionPath(path);
+                        tree.scrollPathToVisible(path);
                     }
                 }
             }
-        }
-    }
-
-    private static void collectGeometries(File dir, String prefix, List<String> geometries, int depth) {
-        File[] dirs = dir.listFiles(File::isDirectory);
-        if (dirs == null) {
-            return;
-        }
-        Arrays.sort(dirs);
-        for (File sub : dirs) {
-            String name = prefix.isEmpty() ? sub.getName() : prefix + "/" + sub.getName();
-            if (new File(sub, "mesh").isDirectory()) {
-                geometries.add(name);
-            } else if (depth < 3) {
-                collectGeometries(sub, name, geometries, depth + 1);
-            }
+        } finally {
+            ignoreSelection = false;
         }
     }
 
     private void onTreeSelection() {
+        if (ignoreSelection) {
+            return;
+        }
         DefaultMutableTreeNode node = (DefaultMutableTreeNode) tree.getLastSelectedPathComponent();
-        if (node == null || !(node.getUserObject() instanceof SimNode)) {
+        if (node == null || !(node.getUserObject() instanceof TaskNode)) {
             return;
         }
-        SimNode sim = (SimNode) node.getUserObject();
-        if (sim.simulation == null) {
+        TaskNode n = (TaskNode) node.getUserObject();
+        if (n.is(task, computation)) {
             return;
         }
-        if (parameterModel.dirty && !sim.simulation.equals(simulation)
-                && JOptionPane.showConfirmDialog(this, "Save the changed parameters of " + simulationLabel() + "?",
-                        "Unsaved parameters", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
-            saveParameters();
+        boolean taskChanged = !n.task.equals(task);
+        if ((taskChanged && !confirmLeaveTask()) || !confirmLeaveComputation()) {
+            selectInTree(task, computation); // stay where we are
+            return;
         }
-        geometry = sim.geometry;
-        simulation = sim.simulation;
-        setTitle("FlowPro Control – " + simulationLabel());
+        select(n.task, n.computation);
+        // saving of the mesh in confirmLeaveTask may have rebuilt the tree
+        selectInTree(task, computation);
+        if (n.computation == null) {
+            tabs.setSelectedComponent(meshTab);
+        } else if (tabs.getSelectedComponent() == meshTab) {
+            tabs.setSelectedComponent(parametersTab);
+        }
+    }
+
+    /**
+     * Makes the task and the computation current (null = none) and loads
+     * them into the tabs.
+     */
+    private void select(String newTask, String newComputation) {
+        boolean taskChanged = newTask == null ? task != null : !newTask.equals(task);
+        task = newTask;
+        computation = newComputation;
+        setTitle(task == null ? TITLE : TITLE + " – " + selectionLabel());
+        if (taskChanged) {
+            loadTaskMesh();
+        }
         loadParameters();
-        chart.setFile(new File(simulationDir(), "residuum.txt"));
+        chart.setFile(computation == null ? null : new File(computationDir(), "residuum.txt"));
         loadResults();
     }
 
-    private String simulationLabel() {
-        return geometry + " / " + simulation;
+    private String selectionLabel() {
+        return computation == null ? task : task + " / " + computation;
     }
 
-    private File simulationDir() {
-        return new File(new File(new File(flowProDir, "simulations"), geometry), simulation);
+    /**
+     * name of the geometry for FlowPro (directory in simulations)
+     */
+    private String geometryName() {
+        return Tasks.DIR + "/" + task;
+    }
+
+    private File taskDir() {
+        return new File(Tasks.tasksDir(flowProDir), task);
+    }
+
+    private File computationDir() {
+        return new File(taskDir(), computation);
     }
 
     private File meshDir() {
-        return new File(new File(new File(flowProDir, "simulations"), geometry), "mesh");
+        return new File(taskDir(), Tasks.MESH);
     }
 
-    private boolean requireSimulation() {
-        if (simulation == null) {
-            JOptionPane.showMessageDialog(this, "Select a simulation in the tree first.");
+    private boolean requireTask() {
+        if (task == null) {
+            JOptionPane.showMessageDialog(this, "Select a task in the list first (or create a new one).");
             return false;
         }
         return true;
     }
 
-    private void newSimulation() {
-        if (!requireSimulation()) {
+    private boolean requireComputation() {
+        if (computation == null) {
+            JOptionPane.showMessageDialog(this, "Select a computation of the task in the list first.");
+            return false;
+        }
+        return true;
+    }
+
+    private boolean isRunningIn(File dir) {
+        if (!isRunning() || processComputationPath == null) {
+            return false;
+        }
+        String path = dir.getAbsolutePath();
+        return processComputationPath.equals(path) || processComputationPath.startsWith(path + File.separator);
+    }
+
+    private void newTask() {
+        if (!confirmLeaveTask() || !confirmLeaveComputation()) {
             return;
         }
-        String name = JOptionPane.showInputDialog(this, "Name of the new simulation of geometry " + geometry
-                + "\n(parameters.txt is copied from " + simulation + "):", simulation + "_2");
-        if (name == null || name.trim().isEmpty()) {
+        JTextField nameField = new JTextField("task1", 20);
+        JRadioButton empty = new JRadioButton("empty - draw the geometry and generate the mesh", true);
+        JRadioButton copy = new JRadioButton("copy the mesh of an existing task or FlowPro geometry:");
+        ButtonGroup group = new ButtonGroup();
+        group.add(empty);
+        group.add(copy);
+        List<String> sources = Tasks.geometries(flowProDir);
+        JComboBox<String> sourceBox = new JComboBox<>(sources.toArray(new String[0]));
+        if (task != null) {
+            sourceBox.setSelectedItem(geometryName());
+        }
+        JCheckBox copyComputations = new JCheckBox("copy also its computations (parameters only, without results)", true);
+        sourceBox.setEnabled(false);
+        copyComputations.setEnabled(false);
+        copy.setEnabled(!sources.isEmpty());
+        copy.addChangeListener(e -> {
+            sourceBox.setEnabled(copy.isSelected());
+            copyComputations.setEnabled(copy.isSelected());
+        });
+        Object[] form = {"name of the task (directory simulations/" + Tasks.DIR + "/NAME)", nameField, " ",
+            empty, copy, sourceBox, copyComputations};
+        if (JOptionPane.showConfirmDialog(this, form, "New task", JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) {
             return;
         }
-        File dir = new File(simulationDir().getParentFile(), name.trim());
-        if (dir.exists()) {
-            JOptionPane.showMessageDialog(this, "Simulation " + name + " already exists.");
+        String name = nameField.getText().trim();
+        String problem = Tasks.checkName(name);
+        File dir = new File(Tasks.tasksDir(flowProDir), name);
+        if (problem == null && dir.exists()) {
+            problem = "Task " + name + " already exists.";
+        }
+        if (problem != null) {
+            error(problem);
+            return;
+        }
+        String firstComputation = "default";
+        try {
+            Files.createDirectories(dir.toPath());
+            boolean computationsCopied = false;
+            if (copy.isSelected() && sourceBox.getSelectedItem() != null) {
+                File source = new File(new File(flowProDir, "simulations"), (String) sourceBox.getSelectedItem());
+                Tasks.copyDirectory(new File(source, Tasks.MESH).toPath(), new File(dir, Tasks.MESH).toPath());
+                File geo = new File(source, Tasks.GEOMETRY_FILE);
+                if (geo.isFile()) {
+                    Files.copy(geo.toPath(), new File(dir, Tasks.GEOMETRY_FILE).toPath());
+                }
+                if (copyComputations.isSelected()) {
+                    for (String comp : Tasks.computations(source)) {
+                        Tasks.copyComputationSetup(new File(source, comp), new File(dir, comp));
+                        if (!computationsCopied) {
+                            firstComputation = comp;
+                        }
+                        computationsCopied = true;
+                    }
+                }
+            }
+            if (!computationsCopied) {
+                Tasks.createDefaultComputation(new File(dir, firstComputation));
+            }
+        } catch (IOException ex) {
+            error("The task cannot be created: " + ex.getMessage());
+            if (!dir.isDirectory()) {
+                return;
+            }
+        }
+        select(name, null);
+        refreshTree();
+        tabs.setSelectedComponent(meshTab);
+    }
+
+    private void newComputation() {
+        if (!requireTask() || !confirmLeaveComputation()) {
+            return;
+        }
+        List<String> existing = Tasks.computations(taskDir());
+        JTextField nameField = new JTextField(computation != null ? computation + "_2" : "default", 20);
+        String template = "default parameters (Euler equations, check the boundary conditions!)";
+        List<String> sources = new ArrayList<>();
+        sources.add(template);
+        for (String comp : existing) {
+            sources.add("copy of " + comp);
+        }
+        JComboBox<String> sourceBox = new JComboBox<>(sources.toArray(new String[0]));
+        if (computation != null) {
+            sourceBox.setSelectedItem("copy of " + computation);
+        }
+        Object[] form = {"name of the computation of task " + task, nameField, " ",
+            "parameters (the results are never copied)", sourceBox};
+        if (JOptionPane.showConfirmDialog(this, form, "New computation", JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) {
+            return;
+        }
+        String name = nameField.getText().trim();
+        String problem = Tasks.checkName(name);
+        File dir = new File(taskDir(), name);
+        if (problem == null && dir.exists()) {
+            problem = "Computation " + name + " already exists.";
+        }
+        if (problem != null) {
+            error(problem);
             return;
         }
         try {
-            Files.createDirectories(dir.toPath());
-            Files.copy(new File(simulationDir(), "parameters.txt").toPath(), new File(dir, "parameters.txt").toPath(),
-                    StandardCopyOption.REPLACE_EXISTING);
-            for (String optional : new String[]{"initScript.js", "order.txt"}) {
-                File f = new File(simulationDir(), optional);
-                if (f.isFile()) {
-                    Files.copy(f.toPath(), new File(dir, optional).toPath());
-                }
+            int source = sourceBox.getSelectedIndex();
+            if (source <= 0) {
+                Tasks.createDefaultComputation(dir);
+            } else {
+                Tasks.copyComputationSetup(new File(taskDir(), existing.get(source - 1)), dir);
             }
-            simulation = name.trim();
-            refreshTree();
         } catch (IOException ex) {
-            error("The simulation cannot be created: " + ex.getMessage());
+            error("The computation cannot be created: " + ex.getMessage());
+            return;
         }
+        select(task, name);
+        refreshTree();
+        tabs.setSelectedComponent(parametersTab);
+    }
+
+    private void rename() {
+        if (!requireTask()) {
+            return;
+        }
+        boolean isTask = computation == null;
+        File dir = isTask ? taskDir() : computationDir();
+        if (isRunningIn(dir)) {
+            error("A computation of " + selectionLabel() + " is running.");
+            return;
+        }
+        if (!isTask && !confirmLeaveComputation()) {
+            return;
+        }
+        String old = isTask ? task : computation;
+        String name = JOptionPane.showInputDialog(this, "New name of the " + (isTask ? "task " : "computation ") + old + ":", old);
+        if (name == null || name.trim().equals(old)) {
+            return;
+        }
+        name = name.trim();
+        File target = new File(dir.getParentFile(), name);
+        String problem = Tasks.checkName(name);
+        if (problem == null && target.exists()) {
+            problem = name + " already exists.";
+        }
+        if (problem != null) {
+            error(problem);
+            return;
+        }
+        try {
+            Files.move(dir.toPath(), target.toPath());
+        } catch (IOException ex) {
+            error("Renaming failed (is a file of it open in another program?): " + ex.getMessage());
+            return;
+        }
+        if (isTask) {
+            task = name; // the mesh editor keeps its (possibly unsaved) state
+            updateMeshHeader();
+            select(task, null);
+        } else {
+            select(task, name);
+        }
+        refreshTree();
+    }
+
+    private void delete() {
+        if (!requireTask()) {
+            return;
+        }
+        boolean isTask = computation == null;
+        File dir = isTask ? taskDir() : computationDir();
+        if (isRunningIn(dir)) {
+            error("A computation of " + selectionLabel() + " is running.");
+            return;
+        }
+        String what = isTask ? "task " + task + " with its mesh and all its computations and results"
+                : "computation " + selectionLabel() + " with its results";
+        if (JOptionPane.showConfirmDialog(this, "Delete " + what + "?\nThe files are deleted permanently.",
+                "Delete", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE) != JOptionPane.YES_OPTION) {
+            return;
+        }
+        try {
+            Tasks.deleteDirectory(dir.toPath());
+        } catch (IOException ex) {
+            error("Deleting failed (is a file of it open in another program?): " + ex.getMessage());
+        }
+        parameterModel.dirty = false;
+        if (isTask) {
+            meshEditor.setModified(false);
+            select(null, null);
+        } else {
+            select(task, null);
+        }
+        refreshTree();
     }
 
     private void openFolder() {
-        if (!requireSimulation()) {
+        if (!requireTask()) {
             return;
         }
         try {
-            Desktop.getDesktop().open(simulationDir());
-        } catch (IOException | UnsupportedOperationException ex) {
+            Desktop.getDesktop().open(computation == null ? taskDir() : computationDir());
+        } catch (IOException | UnsupportedOperationException | IllegalArgumentException ex) {
             error("The folder cannot be opened: " + ex.getMessage());
-        }
-    }
-
-    private void startMeshGenerator() {
-        File jar = new File(flowProDir, "MeshGenerator2D.jar");
-        if (!jar.isFile()) {
-            error("File " + jar + " does not exist, build the project (gradlew build).");
-            return;
-        }
-        try {
-            new ProcessBuilder(javaExecutable(), "-jar", jar.getName()).directory(flowProDir).inheritIO().start();
-        } catch (IOException ex) {
-            error("The mesh generator cannot be started: " + ex.getMessage());
         }
     }
 
     // =================================================================== tabs
     private JTabbedPane createTabs() {
-        tabs.addTab("Parameters", createParametersTab());
-        tabs.addTab("Run", createRunTab());
+        meshTab = createMeshTab();
+        parametersTab = createParametersTab();
+        runTab = createRunTab();
+        resultTab = createResultTab();
+        tabs.addTab("Mesh", meshTab);
+        tabs.addTab("Parameters", parametersTab);
+        tabs.addTab("Run", runTab);
         JPanel chartPanel = new JPanel(new BorderLayout());
         chartPanel.add(chart, BorderLayout.CENTER);
         JCheckBox timeAxis = new JCheckBox("physical time on x axis");
@@ -353,8 +587,210 @@ public class FlowProControl extends JFrame {
         chartControls.add(timeAxis);
         chartPanel.add(chartControls, BorderLayout.SOUTH);
         tabs.addTab("Convergence", chartPanel);
-        tabs.addTab("Mesh & results", createResultTab());
+        tabs.addTab("Results", resultTab);
         return tabs;
+    }
+
+    // ------------------------------------------------------------------- mesh
+    private JPanel createMeshTab() {
+        JPanel panel = new JPanel(new BorderLayout());
+        JPanel header = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        header.add(meshHeader);
+        header.add(button("Import points...", () -> {
+            if (requireTask()) {
+                meshEditor.importPoints(taskDir());
+            }
+        }));
+        header.add(button("Import geometry (.geo2d)...", this::importGeometry));
+        panel.add(header, BorderLayout.NORTH);
+        meshEditor.addMeshAction("Save mesh to task", this::saveMeshToTask);
+        meshEditor.addMeshAction("Save geometry only", this::saveGeometryOnly);
+        meshEditor.addMeshAction("Revert to saved", () -> {
+            if (requireTask() && (!meshEditor.isModified()
+                    || confirm("Discard the changes of the geometry and the mesh of task " + task + "?"))) {
+                loadTaskMesh();
+            }
+        });
+        meshEditor.setChangeListener(this::updateMeshHeader);
+        panel.add(meshEditor, BorderLayout.CENTER);
+        return panel;
+    }
+
+    private void updateMeshHeader() {
+        if (task == null) {
+            meshHeader.setText("<html><b>No task selected</b> - select a task or create a new one</html>");
+            return;
+        }
+        String state = meshEditor.isModified() ? "<font color='#c00000'>unsaved changes</font>"
+                : (Tasks.hasMesh(taskDir()) ? "saved" : "<font color='#c00000'>no mesh yet</font>");
+        meshHeader.setText("<html><b>Task " + task + "</b> - " + state + "</html>");
+    }
+
+    private File taskGeometryFile() {
+        return new File(taskDir(), Tasks.GEOMETRY_FILE);
+    }
+
+    /**
+     * Loads the geometry of the current task and its mesh, if it corresponds
+     * to the geometry, into the mesh editor.
+     */
+    private void loadTaskMesh() {
+        if (meshEditor.isMeshing()) {
+            meshEditor.generateOrCancel(); // cancels the meshing of the previous task
+        }
+        if (task == null) {
+            meshEditor.setGeometry(new Geometry());
+            meshEditor.setInfo(MeshEditorPanel.helpText());
+            updateMeshHeader();
+            return;
+        }
+        File geoFile = taskGeometryFile();
+        File meshGeoFile = new File(meshDir(), Tasks.GEOMETRY_FILE);
+        String message;
+        try {
+            File source = geoFile.isFile() ? geoFile : meshGeoFile;
+            meshEditor.setGeometry(source.isFile() ? Geometry.load(source) : new Geometry());
+            boolean sameGeometry = !geoFile.isFile() || (meshGeoFile.isFile()
+                    && Files.mismatch(geoFile.toPath(), meshGeoFile.toPath()) == -1);
+            if (!Tasks.hasMesh(taskDir())) {
+                message = "The task has no mesh yet.\n\n" + MeshEditorPanel.helpText()
+                        + "\n\nGenerate the mesh and save it to the task.";
+            } else if (!sameGeometry) {
+                message = "The geometry was changed after the mesh had been saved, the task still uses the old mesh "
+                        + "(see tab Results). Generate the mesh and save it to the task.";
+            } else {
+                TriMesh mesh = TriMesh.loadFlowPro(meshDir());
+                if (mesh == null) {
+                    message = "The mesh of the task was not created by the generator (it does not consist "
+                            + "of triangles only), see it on tab Results. A mesh generated and saved here replaces it.";
+                } else {
+                    meshEditor.setMesh(mesh);
+                    message = "Mesh of the task:\n" + mesh.statistics().replace(", ", "\n");
+                }
+            }
+        } catch (IOException ex) {
+            meshEditor.setGeometry(new Geometry());
+            message = "The geometry or the mesh of the task cannot be read: " + ex.getMessage();
+        }
+        meshEditor.setInfo(message);
+        meshEditor.zoomToFit();
+        meshEditor.setModified(false);
+        updateMeshHeader();
+    }
+
+    private void importGeometry() {
+        if (!requireTask()) {
+            return;
+        }
+        if (meshEditor.isModified() && !confirm("Replace the changed geometry of task " + task + "?")) {
+            return;
+        }
+        JFileChooser fc = new JFileChooser(new File(flowProDir, "simulations"));
+        fc.setFileFilter(new FileNameExtensionFilter("FlowPro 2D geometry (*.geo2d)", "geo2d"));
+        if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+            try {
+                meshEditor.setGeometry(Geometry.load(fc.getSelectedFile()));
+                meshEditor.setModified(true);
+                meshEditor.setInfo("Geometry imported from " + fc.getSelectedFile()
+                        + ".\nGenerate the mesh and save it to the task.");
+                updateMeshHeader();
+            } catch (IOException ex) {
+                error(ex.getMessage());
+            }
+        }
+    }
+
+    private boolean saveGeometryOnly() {
+        if (!requireTask() || !meshEditor.readParameters()) {
+            return false;
+        }
+        try {
+            meshEditor.getGeometry().save(taskGeometryFile());
+            meshEditor.setModified(false);
+            meshEditor.setInfo("The geometry was saved into " + taskGeometryFile()
+                    + (meshEditor.getMesh() == null ? ".\nThe task still uses its previous mesh." : "."));
+            updateMeshHeader();
+            return true;
+        } catch (IOException ex) {
+            error("The geometry cannot be saved: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    private boolean saveMeshToTask() {
+        if (!requireTask()) {
+            return false;
+        }
+        TriMesh mesh = meshEditor.getMesh();
+        if (mesh == null) {
+            error("Generate the mesh first (or use 'Save geometry only').");
+            return false;
+        }
+        if (isRunningIn(taskDir())) {
+            error("A computation of task " + task + " is running, the mesh cannot be replaced now.");
+            return false;
+        }
+        if (!meshEditor.readParameters()) {
+            return false;
+        }
+        List<String> withResults = new ArrayList<>();
+        for (String comp : Tasks.computations(taskDir())) {
+            if (Tasks.hasResults(new File(taskDir(), comp))) {
+                withResults.add(comp);
+            }
+        }
+        if (Tasks.hasMesh(taskDir()) && !withResults.isEmpty() && !confirm("The results of computations " + withResults
+                + "\nwere computed on the previous mesh and will not correspond to the new one\n"
+                + "(run them again without 'continue computation'). Replace the mesh of task " + task + "?")) {
+            return false;
+        }
+        try {
+            List<String> deleted = mesh.exportFlowPro(meshDir());
+            meshEditor.getGeometry().save(new File(meshDir(), Tasks.GEOMETRY_FILE));
+            meshEditor.getGeometry().save(taskGeometryFile());
+            meshEditor.setModified(false);
+            meshEditor.setInfo("The mesh was saved into " + meshDir() + ":\n" + mesh.statistics().replace(", ", "\n")
+                    + (deleted.isEmpty() ? "" : "\n\nFiles derived from the previous mesh were deleted: " + deleted));
+        } catch (IOException ex) {
+            error("The mesh cannot be saved: " + ex.getMessage());
+            return false;
+        }
+        updateMeshHeader();
+        refreshTree();
+        loadResults();
+        return true;
+    }
+
+    /**
+     * Asks what to do with the unsaved geometry / mesh before another task is
+     * selected.
+     *
+     * @return false if the user cancelled it
+     */
+    private boolean confirmLeaveTask() {
+        if (task == null) {
+            return true;
+        }
+        if (meshEditor.isMeshing()) {
+            JOptionPane.showMessageDialog(this, "The mesh of task " + task + " is being generated, wait or cancel it.");
+            return false;
+        }
+        if (!meshEditor.isModified()) {
+            return true;
+        }
+        boolean hasMesh = meshEditor.getMesh() != null;
+        Object[] options = {hasMesh ? "Save mesh" : "Save geometry", "Discard", "Cancel"};
+        int answer = JOptionPane.showOptionDialog(this, "The geometry" + (hasMesh ? " and the mesh" : "") + " of task "
+                + task + " were changed." + (hasMesh ? "" : "\n(The mesh was not generated, the task keeps its old mesh.)"),
+                "Unsaved mesh", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+        if (answer == 0) {
+            return hasMesh ? saveMeshToTask() : saveGeometryOnly();
+        }
+        if (answer == 1) {
+            meshEditor.setModified(false);
+            return true;
+        }
+        return false;
     }
 
     // ------------------------------------------------------------------- parameters
@@ -446,19 +882,21 @@ public class FlowProControl extends JFrame {
     }
 
     private void loadParameters() {
-        if (simulation == null) {
-            return;
+        parameterFile = null;
+        parameterModel.rows = new ArrayList<>();
+        parameterModel.dirty = false;
+        parameterInfo.setText(task == null ? " " : "select a computation of task " + task);
+        if (computation != null) {
+            try {
+                parameterFile = new ParameterFile(new File(computationDir(), "parameters.txt"));
+                parameterModel.rows = parameterFile.parameters();
+                parameterInfo.setText(parameterFile.file.getPath());
+            } catch (IOException ex) {
+                error("parameters.txt cannot be read: " + ex.getMessage());
+            }
         }
-        try {
-            parameterFile = new ParameterFile(new File(simulationDir(), "parameters.txt"));
-            parameterModel.rows = parameterFile.parameters();
-            parameterModel.dirty = false;
-            parameterModel.fireTableDataChanged();
-            parameterInfo.setText(parameterFile.file.getPath());
-            continueBox.setSelected(false);
-        } catch (IOException ex) {
-            error("parameters.txt cannot be read: " + ex.getMessage());
-        }
+        parameterModel.fireTableDataChanged();
+        continueBox.setSelected(false);
     }
 
     private boolean saveParameters() {
@@ -479,8 +917,34 @@ public class FlowProControl extends JFrame {
         }
     }
 
+    /**
+     * Asks what to do with the changed parameters before another computation
+     * is selected.
+     *
+     * @return false if the user cancelled it
+     */
+    private boolean confirmLeaveComputation() {
+        if (parameterTable.isEditing()) {
+            parameterTable.getCellEditor().stopCellEditing();
+        }
+        if (!parameterModel.dirty) {
+            return true;
+        }
+        int answer = JOptionPane.showConfirmDialog(this, "Save the changed parameters of " + selectionLabel() + "?",
+                "Unsaved parameters", JOptionPane.YES_NO_CANCEL_OPTION);
+        if (answer == JOptionPane.YES_OPTION) {
+            return saveParameters();
+        }
+        if (answer == JOptionPane.NO_OPTION) {
+            parameterModel.dirty = false;
+            return true;
+        }
+        return false;
+    }
+
     private void addParameter() {
         if (parameterFile == null) {
+            requireComputation();
             return;
         }
         List<String> names = new ArrayList<>();
@@ -632,15 +1096,25 @@ public class FlowProControl extends JFrame {
     }
 
     /**
-     * Starts FlowPro: java -Xmx..g -jar FlowPro.jar COMMAND -g GEOMETRY -s
-     * SIMULATION [-d N] [-p key=value]...
+     * Starts FlowPro: java -Xmx..g -jar FlowPro.jar COMMAND -g GUI/TASK -s
+     * COMPUTATION [-d N] [-p key=value]...
      */
     private void runFlowPro(String command) {
-        if (!requireSimulation()) {
+        if (!requireTask() || !requireComputation()) {
             return;
         }
         if (isRunning()) {
-            JOptionPane.showMessageDialog(this, "A computation is already running.");
+            JOptionPane.showMessageDialog(this, "A computation is already running (" + processLabel + ").");
+            return;
+        }
+        if (!Tasks.hasMesh(taskDir())) {
+            error("Task " + task + " has no mesh yet. Generate it on tab Mesh and save it to the task.");
+            tabs.setSelectedComponent(meshTab);
+            return;
+        }
+        if (meshEditor.isModified() && !command.equals("postprocessing")
+                && !confirm("The geometry / mesh of task " + task + " has unsaved changes,\n"
+                        + "the computation uses the mesh saved in the task. Continue?")) {
             return;
         }
         if (parameterModel.dirty) {
@@ -671,9 +1145,9 @@ public class FlowProControl extends JFrame {
             }
         }
         cmd.add("--geometry");
-        cmd.add(geometry);
+        cmd.add(geometryName());
         cmd.add("--simulation");
-        cmd.add(simulation);
+        cmd.add(computation);
         if (!command.equals("postprocessing")) {
             int domains = (Integer) domainsSpinner.getValue();
             if (domains > 0) {
@@ -699,20 +1173,21 @@ public class FlowProControl extends JFrame {
 
         if (command.equals("run")) {
             // a stop request left from a previous run must not stop the new one
-            new File(simulationDir(), STOP_FILE_NAME).delete();
+            new File(computationDir(), STOP_FILE_NAME).delete();
             if (!continueBox.isSelected()) {
-                chart.setFile(new File(simulationDir(), "residuum.txt"));
+                chart.setFile(new File(computationDir(), "residuum.txt"));
             }
-            tabs.setSelectedIndex(1);
         }
+        tabs.setSelectedComponent(runTab);
 
         console.setText(String.join(" ", cmd) + "\n\n");
         try {
             ProcessBuilder pb = new ProcessBuilder(cmd).directory(flowProDir).redirectErrorStream(true);
             process = pb.start();
-            processSimulationPath = simulationDir().getAbsolutePath();
+            processComputationPath = computationDir().getAbsolutePath();
+            processLabel = selectionLabel();
             runStatus.setForeground(new Color(0, 110, 0));
-            runStatus.setText(command + " running: " + simulationLabel());
+            runStatus.setText(command + " running: " + processLabel);
             Process started = process;
             Thread reader = new Thread(() -> readOutput(started, command), "flowpro-output");
             reader.setDaemon(true);
@@ -721,6 +1196,9 @@ public class FlowProControl extends JFrame {
             error("FlowPro cannot be started: " + ex.getMessage());
         }
         updateRunButtons();
+        if (command.equals("run")) {
+            refreshTree();
+        }
     }
 
     private void readOutput(Process p, String command) {
@@ -759,15 +1237,23 @@ public class FlowProControl extends JFrame {
         });
     }
 
+    private boolean isProcessOfSelection() {
+        return processComputationPath != null && computation != null
+                && processComputationPath.equals(computationDir().getAbsolutePath());
+    }
+
     private void processFinished(String command, int exit) {
         runStatus.setForeground(exit == 0 ? new Color(0, 70, 160) : Color.RED);
         String what = command.equals("check") ? (exit == 0 ? "check passed" : "check found problems")
                 : command + (exit == 0 ? " finished" : " failed (exit code " + exit + ")");
-        runStatus.setText(what + ": " + simulationLabel());
+        runStatus.setText(what + ": " + processLabel);
         updateRunButtons();
         chart.reload();
         if (command.equals("run")) {
-            loadResults();
+            if (isProcessOfSelection()) {
+                loadResults();
+            }
+            refreshTree();
         }
     }
 
@@ -776,8 +1262,9 @@ public class FlowProControl extends JFrame {
             return;
         }
         try {
-            Files.write(new File(processSimulationPath, STOP_FILE_NAME).toPath(), new byte[0]);
-            runStatus.setText("stop requested - the results will be saved after the current time step");
+            Files.write(new File(processComputationPath, STOP_FILE_NAME).toPath(), new byte[0]);
+            runStatus.setText("stop requested - the results of " + processLabel
+                    + " will be saved after the current time step");
         } catch (IOException ex) {
             error("The stop request cannot be written: " + ex.getMessage());
         }
@@ -787,8 +1274,8 @@ public class FlowProControl extends JFrame {
         if (!isRunning()) {
             return;
         }
-        if (JOptionPane.showConfirmDialog(this, "Kill the computation? The results since the last save will be lost.",
-                "Kill", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
+        if (JOptionPane.showConfirmDialog(this, "Kill the computation " + processLabel
+                + "? The results since the last save will be lost.", "Kill", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION) {
             process.descendants().forEach(ProcessHandle::destroyForcibly);
             process.destroyForcibly();
         }
@@ -798,14 +1285,14 @@ public class FlowProControl extends JFrame {
      * called every second
      */
     private void monitor() {
-        if (simulation != null) {
+        if (computation != null) {
             chart.reload();
         }
-        if (isRunning()) {
+        if (isRunning() && isProcessOfSelection()) {
             double[] last = chart.last();
-            if (last != null && processSimulationPath != null && processSimulationPath.equals(simulationDir().getAbsolutePath())) {
+            if (last != null) {
                 runStatus.setText(String.format(Locale.ROOT, "running %s: %d steps, residuum %.3e, t = %.5g",
-                        simulationLabel(), chart.numberOfSteps(), last[0], last[1]));
+                        processLabel, chart.numberOfSteps(), last[0], last[1]));
             }
         }
         updateRunButtons();
@@ -836,37 +1323,41 @@ public class FlowProControl extends JFrame {
     }
 
     private void loadResults() {
-        if (simulation == null) {
-            return;
-        }
         int previous = componentCombo.getSelectedIndex();
-        int n = resultView.load(meshDir(), simulationDir());
         DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>();
         model.addElement("mesh only");
-        for (int i = 0; i < n; i++) {
-            model.addElement("W[" + i + "]" + (i == 0 ? " (density)" : ""));
+        int n = 0;
+        if (task != null) {
+            // a task without a computation: its mesh only (there is no W.txt in the task directory)
+            n = resultView.load(meshDir(), computation == null ? taskDir() : computationDir());
+            for (int i = 0; i < n; i++) {
+                model.addElement("W[" + i + "]" + (i == 0 ? " (density)" : ""));
+            }
+        } else {
+            resultView.load(new File(flowProDir, "-"), new File(flowProDir, "-"));
         }
         componentCombo.setModel(model);
         componentCombo.setSelectedIndex(previous > 0 && previous <= n ? previous : (n > 0 ? 1 : 0));
-        resultInfo.setText(resultView.getMessage());
+        resultInfo.setText(task == null ? " " : resultView.getMessage());
     }
 
     // =================================================================== misc
+    private boolean confirm(String message) {
+        return JOptionPane.showConfirmDialog(this, message, "Confirm", JOptionPane.YES_NO_OPTION) == JOptionPane.YES_OPTION;
+    }
+
     private void error(String message) {
         JOptionPane.showMessageDialog(this, message, "Error", JOptionPane.ERROR_MESSAGE);
     }
 
     private void exit() {
-        if (parameterModel.dirty) {
-            int answer = JOptionPane.showConfirmDialog(this, "Save the changed parameters?", "Exit",
-                    JOptionPane.YES_NO_CANCEL_OPTION);
-            if (answer == JOptionPane.CANCEL_OPTION || (answer == JOptionPane.YES_OPTION && !saveParameters())) {
-                return;
-            }
+        if (!confirmLeaveTask() || !confirmLeaveComputation()) {
+            return;
         }
         if (isRunning()) {
             Object[] options = {"Stop and save", "Leave it running", "Cancel"};
-            int answer = JOptionPane.showOptionDialog(this, "A computation is running. What should happen with it?",
+            int answer = JOptionPane.showOptionDialog(this, "Computation " + processLabel
+                    + " is running. What should happen with it?",
                     "Exit", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
             if (answer == 2 || answer < 0) {
                 return;

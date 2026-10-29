@@ -135,9 +135,19 @@ java -jar FlowPro.jar help
 ## 4. Řízení výpočtu – `FlowProControl`
 
 `FlowProControl.bat` nebo `java -jar FlowProControl.jar`. FlowPro spouští jako samostatný proces.
+Generátor sítí je součástí aplikace (záložka *Mesh*), `MeshGenerator2D.jar` zůstává jako samostatný nástroj
+a pro dávkový režim.
 
-* **Strom simulací** (geometrie / simulace), nová simulace kopií existující, otevření složky,
-  spuštění generátoru sítí.
+* **Úlohy:** všechny úlohy GUI jsou v `simulations/GUI/NAZEV`. Jedna úloha = jedna výpočtová síť
+  (`mesh/`, geometrie generátoru `geometry.geo2d`) a libovolný počet výpočtů (podadresáře s `parameters.txt`).
+  Pro FlowPro je úloha geometrie `GUI/NAZEV` (`java -jar FlowPro.jar run -g GUI/NAZEV -s VYPOCET`).
+* **Seznam úloh** se svými výpočty, *New task* (prázdná, nebo kopie sítě existující úlohy či libovolné
+  geometrie ze `simulations` včetně parametrů jejích výpočtů), *New computation* (výchozí parametry nebo kopie
+  parametrů jiného výpočtu úlohy, výsledky se nekopírují), *Rename*, *Delete*, *Open folder*.
+* **Mesh:** editor geometrie a generátor sítě úlohy. *Save mesh to task* zapíše síť do `mesh/` (upozorní,
+  pokud mají výpočty výsledky ze staré sítě), *Save geometry only*, *Revert to saved*. Při přepnutí úlohy
+  s neuloženými změnami se aplikace zeptá. Uložená trojúhelníková síť se při otevření úlohy zobrazí;
+  pokud byla geometrie od uložení sítě změněna, zobrazí se jen geometrie.
 * **Parameters:** tabulka parametrů `parameters.txt` s popisy z registru; zapnutí/vypnutí parametru (`%`),
   přidání parametru ze seznamu. Ukládá se bez porušení komentářů a struktury souboru. Tlačítko *Check*.
 * **Run:** paměť JVM, počet domén, „continue computation“, dočasné přepsání parametrů (`CFL=10, steps=500`),
