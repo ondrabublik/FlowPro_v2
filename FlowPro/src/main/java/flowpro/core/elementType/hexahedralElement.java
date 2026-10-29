@@ -40,7 +40,7 @@ public class hexahedralElement extends ElementType {
 
     @Override
     public Quadrature getQVolumeRule(QuadratureCentral qRules) {
-        return qRules.qHexa[volumeQuadratureOrder];
+        return qRules.rule(qRules.qHexa, volumeQuadratureOrder, "qHexa");
     }
 
     @Override

@@ -211,3 +211,15 @@ a pro dávkový režim.
   residuum); s předpodmíněním nezávislým na pořadí (`blockjacobi`, `none`) dává `rcm` stejné výsledky (5e−9);
   p = 2, adaptivní CFL, 150 kroků: čas řešení soustav ILU0 6,8 s → 5,8 s, BlockILU0 4,2 s → 3,6 s.
   Newton (BDF2, `newtonIters = 6`): relativní residuum 4e−3 → 1,7e−5 → 1e−7 (kvadratická konvergence).
+
+### B4 – kvadratura
+
+* Pravidlo řádu k je teď pro všechny typy elementů přesné pro polynomy stupně 2k − 1. Na trojúhelnících
+  a čtyřstěnech bylo dřív přesné jen pro 2(k − 1), tj. při výchozím k = p + 1 jen pro stupeň 2p – nelineární
+  toky byly podintegrované (aliasing). Výchozí objemová kvadratura je tak 2p + 1 jako na hranách a čtyřúhelnících.
+* Trojúhelníková pravidla stupně 3 a 7 mají záporné váhy (−0,56 a −0,15), místo nich se bere pravidlo
+  o stupeň vyšší (kladné váhy). Čtyřstěny mají všechny váhy kladné.
+* Chybějící pravidlo (soubor) se dřív tiše ignorovalo a výpočet spadl až na `NullPointerException`; nyní
+  `QuadratureCentral.rule` hlásí, které pravidlo a proč chybí. Trojúhelníky a čtyřstěny podporují k ≤ 8.
+* Ověření (GAMM, adaptivní CFL, 150 kroků): p = 1 konverguje stejně (čas +25 %, 6 místo 3 bodů), p = 2
+  relativní residuum 1,8e−2 → 1,4e−2, p = 3 beze změny.

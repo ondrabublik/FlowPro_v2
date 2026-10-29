@@ -53,17 +53,17 @@ public abstract class ElementType implements Serializable {
     public Quadrature getQFaceRule(int elemFaceType, QuadratureCentral qRules, int faceOrder) {
         switch (elemFaceType) {
             case 1:
-                return qRules.qPoint[faceOrder];
+                return qRules.rule(qRules.qPoint, faceOrder, "qPoint");
             case 2:
-                return qRules.qLine[faceOrder];
+                return qRules.rule(qRules.qLine, faceOrder, "qLine");
             case 3:
             case 31:
             case 33:
-                return qRules.qTriangle[faceOrder];
+                return qRules.rule(qRules.qTriangle, faceOrder, "qTriangle");
             case 4:
-                return qRules.qSquare[faceOrder];
+                return qRules.rule(qRules.qSquare, faceOrder, "qSquare");
             case 43:
-                return qRules.q25DSquare[faceOrder];
+                return qRules.rule(qRules.q25DSquare, faceOrder, "q25DSquare");
             default:
                 throw new RuntimeException("unknown face type");
         }

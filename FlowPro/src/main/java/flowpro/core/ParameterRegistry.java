@@ -89,8 +89,8 @@ public final class ParameterRegistry {
                 + "(either CFL or dt has to be given)");
         add("maxCFL", Type.DOUBLE, "1e4", "discretisation", "upper limit of the adaptive CFL (CFL <= 0)");
         add("dt", Type.DOUBLE, "", "discretisation", "fixed time step (either CFL or dt has to be given)");
-        add("volumeQuardatureOrder", Type.INT, "", "discretisation", "order of the volume quadrature (default = order of the element)");
-        add("faceQuardatureOrder", Type.INT, "", "discretisation", "order of the face quadrature (default = order of the element)");
+        add("volumeQuardatureOrder", Type.INT, "", "discretisation", "order k of the volume quadrature, exact for polynomials of degree 2k-1 (default = order of the element p+1)");
+        add("faceQuardatureOrder", Type.INT, "", "discretisation", "order k of the face quadrature, exact for polynomials of degree 2k-1 (default = order of the element p+1)");
         add("curvedBoundary", Type.BOOLEAN, "false", "discretisation", "curved boundary elements");
 
         // nonlinear and linear solver

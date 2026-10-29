@@ -36,7 +36,7 @@ public class squareElement extends ElementType{
     }
 
     public Quadrature getQVolumeRule(QuadratureCentral qRules) {
-        return qRules.qSquare[volumeQuadratureOrder];
+        return qRules.rule(qRules.qSquare, volumeQuadratureOrder, "qSquare");
     }
 
     public Transformation getVolumeTransformation(double[][] vertices, FaceCurvature fCurv, Parameters par) {

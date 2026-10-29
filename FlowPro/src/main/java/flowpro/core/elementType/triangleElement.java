@@ -36,7 +36,7 @@ public class triangleElement extends ElementType {
     }
 
     public Quadrature getQVolumeRule(QuadratureCentral qRules) {
-        return qRules.qTriangle[volumeQuadratureOrder];
+        return qRules.rule(qRules.qTriangle, volumeQuadratureOrder, "qTriangle");
     }
 
     public Transformation getVolumeTransformation(double[][] vertices, FaceCurvature fCurv, Parameters par) {

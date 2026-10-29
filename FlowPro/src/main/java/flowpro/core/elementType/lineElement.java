@@ -36,7 +36,7 @@ public class lineElement extends ElementType {
     }
 
     public Quadrature getQVolumeRule(QuadratureCentral qRules) {
-        return qRules.qLine[volumeQuadratureOrder];
+        return qRules.rule(qRules.qLine, volumeQuadratureOrder, "qLine");
     }
 
     public Transformation getVolumeTransformation(double[][] vertices, FaceCurvature fCurv, Parameters par) {

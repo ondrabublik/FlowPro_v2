@@ -36,7 +36,7 @@ public class prismElement extends ElementType {
     }
 
     public Quadrature getQVolumeRule(QuadratureCentral qRules) {
-        return qRules.qPrism[volumeQuadratureOrder];
+        return qRules.rule(qRules.qPrism, volumeQuadratureOrder, "qPrism");
     }
 
     public Transformation getVolumeTransformation(double[][] vertices, FaceCurvature fCurv, Parameters par) {

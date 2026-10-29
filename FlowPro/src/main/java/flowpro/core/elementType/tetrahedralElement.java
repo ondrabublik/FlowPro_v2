@@ -36,7 +36,7 @@ public class tetrahedralElement extends ElementType {
     }
 
     public Quadrature getQVolumeRule(QuadratureCentral qRules) {
-        return qRules.qTetra[volumeQuadratureOrder];
+        return qRules.rule(qRules.qTetra, volumeQuadratureOrder, "qTetra");
     }
 
     public Transformation getVolumeTransformation(double[][] vertices, FaceCurvature fCurv, Parameters par) {
