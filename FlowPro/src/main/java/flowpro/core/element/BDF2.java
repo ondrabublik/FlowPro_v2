@@ -65,6 +65,7 @@ public class BDF2 extends Implicit {
         double[] a = coefficients(dt, dto);
         double[] Rw = new double[nBasis * nEqs];
         elem.residuum(new double[nBasis * nEqs], Rw, new double[nFaces][]);
+        applyGCL(a[0], a[1], a[2]);
         assembleRHS(Rw, a[0], a[1], a[2]);
     }
 
@@ -89,6 +90,7 @@ public class BDF2 extends Implicit {
         // compute residuum
         elem.residuum(V, Rw, RwNeigh);
         // assemble rhs
+        applyGCL(a1, a2, a3);
         assembleRHS(Rw, a1, a2, a3);
 
         if (useJacobiMatrixForAssembly) { // fast assemble when jacobian of equations is known

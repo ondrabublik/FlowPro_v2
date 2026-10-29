@@ -324,11 +324,14 @@ public abstract class Aerodynamics implements Equation {
         W[0] = limiteRho(W[0]);
         double p = pressure(W);
         double a = Math.sqrt(kapa * p / W[0]);
+        // velocity relative to the mesh (ALE), for a static mesh |v|
+        double[] meshVelocity = elem == null ? null : elem.meshVelocity;
         double v = .0;
         for (int d = 0; d < dim; ++d) {
-            v += W[d + 1] * W[d + 1];
+            double vRel = W[d + 1] / W[0] - (meshVelocity == null ? 0 : meshVelocity[d]);
+            v += vRel * vRel;
         }
-        v = Math.sqrt(v) / W[0];
+        v = Math.sqrt(v);
 
         return v + a;
     }

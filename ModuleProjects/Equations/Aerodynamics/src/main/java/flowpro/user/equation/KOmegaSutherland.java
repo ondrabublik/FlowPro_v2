@@ -370,7 +370,13 @@ public class KOmegaSutherland extends Aerodynamics {
         double[] flux = diffusiveFlux(Wc, dWc, n, elem);
         if (TT < 0) {
             if (TT == BoundaryType.WALL) {
-                flux[dim + 1] = .0;
+                // adiabatic wall: no heat flux, only the work of the viscous stress
+                // of a moving wall u_wall . (tau n) (previously zero)
+                double work = .0;
+                for (int d = 0; d < dim; ++d) {
+                    work += elem.meshVelocity[d] * flux[d + 1];
+                }
+                flux[dim + 1] = work;
             } else {
                 Arrays.fill(flux, .0);
             }

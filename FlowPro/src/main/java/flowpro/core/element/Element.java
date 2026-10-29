@@ -259,6 +259,8 @@ public abstract class Element implements Serializable {
             elemData.currentWallDistance += innerInterpolant[j] * wallDistance[j];
         }
         elemData.currentX = transform.getX(currentXi);
+        // previously the volume kept the mesh velocity of the last evaluated face
+        System.arraycopy(u, 0, elemData.meshVelocity, 0, dim);
 
         if (par.externalField) {
             int nExternalField = externalField[0].length;
@@ -430,6 +432,74 @@ public abstract class Element implements Serializable {
                         break;
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Discrete geometric conservation law (moving mesh). The mass matrix in the
+     * time derivative is not computed from the geometry, but it satisfies
+     * a1 M + a2 Mo + a3 Mo2 = B, where B_ij is the rate of change of M_ij given by
+     * the mesh velocity u, integrated by parts with the same quadrature as the
+     * ALE terms of the residuum:
+     * B_ij = int_dK (u.n) phi_i phi_j ds - int_K u . grad(phi_i phi_j) dx.
+     * For a constant state the time derivative then exactly balances the ALE
+     * terms of the residuum, i.e. a uniform flow is preserved on a moving mesh.
+     * Evaluating the geometric mass matrix at the new time level does not
+     * satisfy this (e.g. the area of a triangle depends quadratically on time).
+     */
+    public void applyGCLMassMatrix(double a1, double a2, double a3) {
+        double[][] B = new double[nBasis][nBasis];
+        for (int k = 0; k < nFaces; k++) {
+            Integration.Face face = Int.faces[k];
+            int[] edgeIndex = face.faceIndexes;
+            for (int p = 0; p < face.nIntEdge; p++) {
+                double[] interpolant = face.interpolantFace[p];
+                double un = 0;
+                for (int d = 0; d < dim; d++) {
+                    double ud = 0;
+                    for (int j = 0; j < face.nVerticesEdge; j++) {
+                        ud += interpolant[j] * U[edgeIndex[j]][d];
+                    }
+                    un += ud * n[k][p][d];
+                }
+                double[] base = face.basisFaceLeft[p];
+                double jw = face.JacobianFace[p] * face.weightsFace[p] * un;
+                for (int i = 0; i < nBasis; i++) {
+                    for (int j = 0; j < nBasis; j++) {
+                        B[i][j] += jw * base[i] * base[j];
+                    }
+                }
+            }
+        }
+        for (int p = 0; p < Int.nIntVolume; p++) {
+            double[] interpolant = Int.interpolantVolume[p];
+            double[] u = new double[dim];
+            for (int j = 0; j < nVertices; j++) {
+                for (int d = 0; d < dim; d++) {
+                    u[d] += interpolant[j] * U[j][d];
+                }
+            }
+            double[] base = Int.basisVolume[p];
+            double[][] dBase = Int.dXbasisVolume[p];
+            double jw = Int.JacobianVolume[p] * Int.weightsVolume[p];
+            for (int i = 0; i < nBasis; i++) {
+                double uGradI = 0;
+                for (int d = 0; d < dim; d++) {
+                    uGradI += u[d] * dBase[i][d];
+                }
+                for (int j = 0; j < nBasis; j++) {
+                    double uGradJ = 0;
+                    for (int d = 0; d < dim; d++) {
+                        uGradJ += u[d] * dBase[j][d];
+                    }
+                    B[i][j] -= jw * (uGradI * base[j] + base[i] * uGradJ);
+                }
+            }
+        }
+        for (int i = 0; i < nBasis; i++) {
+            for (int j = 0; j < nBasis; j++) {
+                M[i][j] = (B[i][j] - a2 * Mo[i][j] - a3 * Mo2[i][j]) / a1;
             }
         }
     }

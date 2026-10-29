@@ -40,6 +40,18 @@ public abstract class Implicit extends TimeIntegrationElement {
         return "localimplicit";
     }
 
+    /**
+     * On a moving mesh the mass matrix of the time derivative is given by the
+     * discrete geometric conservation law (parameter gcl), see
+     * Element.applyGCLMassMatrix. Must be called before the right hand side and
+     * the Jacobi matrix are assembled (they use elem.M).
+     */
+    void applyGCL(double a1, double a2, double a3) {
+        if (elem.par.movingMesh && elem.par.gcl) {
+            elem.applyGCLMassMatrix(a1, a2, a3);
+        }
+    }
+
     public void initImplicit() {
         isImplicit = true;
         TT = elem.TT;

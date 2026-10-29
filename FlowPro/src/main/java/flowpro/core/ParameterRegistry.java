@@ -123,6 +123,8 @@ public final class ParameterRegistry {
 
         // moving mesh
         add("movingMesh", Type.BOOLEAN, "false", "moving mesh", "ALE computation on a moving mesh");
+        add("gcl", Type.BOOLEAN, "true", "moving mesh", "discrete geometric conservation law on a moving mesh (BDF): "
+                + "the mass matrix satisfies the GCL, a uniform flow is preserved");
         add("dynamicsModel", Type.STRING, "none", "moving mesh", "class of the dynamics of the bodies (module)");
         add("meshDeformationType", Type.STRING, "none", "moving mesh", "type of the mesh deformation");
 

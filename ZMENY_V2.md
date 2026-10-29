@@ -223,3 +223,22 @@ a pro dávkový režim.
   `QuadratureCentral.rule` hlásí, které pravidlo a proč chybí. Trojúhelníky a čtyřstěny podporují k ≤ 8.
 * Ověření (GAMM, adaptivní CFL, 150 kroků): p = 1 konverguje stejně (čas +25 %, 6 místo 3 bodů), p = 2
   relativní residuum 1,8e−2 → 1,4e−2, p = 3 beze změny.
+
+### B5 – ALE a pohyblivá síť
+
+* **Diskrétní GCL** (nový parametr `gcl`, výchozí `true`, BDF1/BDF2): matice hmotnosti v časové derivaci
+  se na pohyblivé síti nepočítá z geometrie nové hladiny, ale splňuje a1·M + a2·Mo + a3·Mo2 = B, kde
+  B_ij = ∫∂K (u·n) φiφj − ∫K u·∇(φiφj) je změna M daná rychlostí sítě, integrovaná stejnou kvadraturou
+  jako ALE členy residua (`Element.applyGCLMassMatrix`). Konstantní stav je pak přesným řešením.
+  Ověřeno na čtverci 10×10 (512 trojúhelníků, p = 1, deformace `Test2D` s nehybnou hranicí, klidný plyn,
+  100 kroků, jedna perioda): odchylka od počátečního stavu BDF1 0,22 → 1,5e−14, BDF2 0,28 → 2,3e−13.
+  Neřešeno: explicitní metody (RK používají pevnou M⁻¹) a `BDFIncompressible*`.
+* **Rychlost sítě v objemu** – `ElementData.meshVelocity` se v objemových kvadraturních bodech nenastavovala
+  (zůstávala hodnota z poslední stěny); používají ji např. zdrojové členy a odhad vlastních čísel.
+* **Vlastní číslo** (Rusanovův tok, časový krok, umělá viskozita) v `Aerodynamics` (všechny stlačitelné
+  modely kromě rotujících souřadnic) používá rychlost relativní vůči síti |v − u| + a, dřív |v| + a.
+  Na statické síti beze změny (rozdíl v zaokrouhlení, GAMM 1,7e−10).
+* **Energie na pohyblivé adiabatické stěně** – vazký tok energie se nuloval celý; nyní je nulový jen tepelný
+  tok a zůstává práce smykového napětí u_w·(τn). Moduly s typem stěny `WALL` (NavierStokes, KOmega*,
+  SpalartAllmaras*, IBM, R, MatlabClient, VelocityBreak); `SpalartAllmarasRotordynamics/Seal` mají vlastní
+  rychlost stěny a zůstaly beze změny.
