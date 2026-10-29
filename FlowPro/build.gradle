@@ -40,7 +40,18 @@ dependencies {
     implementation 'org.graalvm.js:js:23.0.0'
 //    runtimeOnly group: 'com.github.johnrengelman.shadow', name: 'com.github.johnrengelman.shadow.gradle.plugin', version: '8.1.1', ext: 'pom'
     
-//    testCompile group: 'junit', name: 'junit', version: '4.10'
+    testImplementation 'junit:junit:4.10'
+}
+
+// verification tests (src/test/java) run FlowPro in its project directory
+// (gaussRules, modules), the simulations are created in simulations/_test
+test {
+    workingDir = projectDir
+    maxHeapSize = '2g'
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat 'full'
+    }
 }
 
 println '-------------------------------------------------'

@@ -112,7 +112,10 @@ public class DGiso extends Element {
             residuumWall(k, V, K, KR[k]);
         }
 
-        if (elemType.order > 1) { // volume integral only for DGFEM
+        // the volume fluxes vanish for piecewise constant elements (order 1), but the
+        // source term does not (it used to be skipped together with them)
+        boolean volumeFluxes = elemType.order > 1;
+        if (volumeFluxes || eqn.isSourcePresent()) {
             double[] nor = new double[dim];
             double[][] f = null;
             double[][] fv = null;
@@ -138,7 +141,7 @@ public class DGiso extends Element {
                     }
                 }
                 // convection
-                if (eqn.isConvective()) {
+                if (volumeFluxes && eqn.isConvective()) {
                     f = new double[dim][];
                     for (int d = 0; d < dim; d++) {
                         nor[d] = 1;
@@ -147,7 +150,7 @@ public class DGiso extends Element {
                     }
                 }
                 // diffusion
-                if (eqn.isDiffusive()) {
+                if (volumeFluxes && eqn.isDiffusive()) {
                     fv = new double[dim][];
                     for (int d = 0; d < dim; d++) {
                         nor[d] = 1;
@@ -162,7 +165,7 @@ public class DGiso extends Element {
 
                 for (int m = 0; m < nEqs; m++) {
                     for (int j = 0; j < nBasis; j++) {
-                        if (eqn.isConvective()) {
+                        if (volumeFluxes && eqn.isConvective()) {
                             double fsum = 0;
                             double dWsum = 0;
                             for (int d = 0; d < dim; d++) {
@@ -171,7 +174,7 @@ public class DGiso extends Element {
                             }
                             K[nBasis * m + j] += Jac * weight * fsum - (eps + dampConst + dampInner[m]) * Jac * weight * dWsum;
                         }
-                        if (eqn.isDiffusive()) {
+                        if (volumeFluxes && eqn.isDiffusive()) {
                             double fvsum = 0;
                             for (int d = 0; d < dim; d++) {
                                 fvsum += fv[d][m] * dBase[j][d];

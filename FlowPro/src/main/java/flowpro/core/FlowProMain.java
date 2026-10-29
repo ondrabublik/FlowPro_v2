@@ -467,6 +467,20 @@ public class FlowProMain {
         return ok;
     }
 
+    /**
+     * Prepares the local (single domain) solver of a simulation without running
+     * it, used by the tests.
+     *
+     * @param overrides parameters replacing the values of parameters.txt
+     */
+    static MasterSolver createLocalSolver(String geometry, String simulation, Map<String, String> overrides)
+            throws IOException, MPIException {
+        jarURLList = getJarURLList("modules");
+        FlowProMain dgfem = new FlowProMain(geometry, simulation);
+        dgfem.applyOverrides(overrides);
+        return dgfem.solverFactory(false, 0);
+    }
+
     private MasterSolver solverFactory(boolean optimalisation, int nDomains) throws IOException, MPIException {
         boolean parallelMode = false;
         if (nDomains > 0) {

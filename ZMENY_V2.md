@@ -168,7 +168,7 @@ a pro dávkový režim.
 * Škálování interior penalty (`p²/h`), vlastní čísla Rusanova toku v ALE.
 * Počáteční podmínka ze skriptu je po elementech konstantní (hodnota v těžišti).
 * Mrtvý kód (`Element0.java`, zakomentované řešiče), duplicity variant `DGpure*`, veřejná měnitelná pole.
-* Automatické testy (projekt žádné nemá) – ověření níže bylo provedeno ručně.
+* Automatické testy – viz kap. 7, B8.
 * Paralelní (síťový) režim nebyl spuštěn – kompilace a serializace dat přes nový filtr ověřeny.
 * Staré GUI `FlowProManager` je zachováno (jen odstraněno `-d64`).
 
@@ -285,3 +285,27 @@ a pro dávkový režim.
   skončí na NaN po ~20 krocích a BDF2 po 6 krocích (záporný tlak), s limiterem doběhnou do t = 1
   (ρ_min ≈ 0,02, p_min ≈ 0,004–0,005, přesné řešení ρ_min ≈ 0,022). Na GAMM se limiter neaktivuje.
 * Funkce `limiteRho` dál mění vstupní pole (zůstalo, týká se jen stavů s ρ < RHO_TOL).
+
+### B8 – automatické testy (JUnit)
+
+`gradlew build` spouští testy v `FlowPro/src/test/java` (JUnit 4.10, celkem ~10 s). Testy si vytvoří síť
+a parametry v `simulations/_test` (po skončení se smažou) a spouštějí řešič přes `FlowProMain.createLocalSolver`.
+Testovací rovnice `TestScalarEquation` (testovací zdrojové soubory) je lineární advekce–difúze s vyrobeným
+řešením u = sin(2x + y).
+
+| Test | Co ověřuje | Výsledek |
+|---|---|---|
+| `ConvergenceOrderTest` | řád konvergence v L2 na sítích 4, 8, 16 (DGpure) | advekce p = 0…3: 0,96 / 2,00 / 3,01 / 4,00; advekce–difúze p = 1, 2, 3: 2,02 / 1,96 / 3,92 (pro sudé p je DDG bez korekce druhých derivací o řád horší) |
+| `FreeStreamPreservationTest` | klidný plyn na deformující se síti (`Test2D`), BDF1 i BDF2 | s GCL odchylka ~1e−14, bez GCL > 1e−4 (vyžaduje moduly Aerodynamics a RigidBody, jinak se přeskočí) |
+| `JacobianTest` | analytický Jacobián (`DGjacobi`, `DGpureFast`) proti diferencím residua, p = 1, 2, s difúzí i bez | shoda ~1e−9 |
+| `LinearSolverTest` | GMRES s `ilu0`, `blockilu0`, `blockjacobi`, `none` a obě číslování proti přímému řešení | shoda 1e−12 |
+
+Testy odhalily a opravily tyto chyby:
+
+* **`DGpure`, `DGiso`, `DGpureIncompressible` vynechávaly pro řád 1 (p = 0) zdrojový člen** – celý objemový
+  integrál se pro řád 1 přeskakoval, a s ním i zdroj. Řešení se zdrojem (turbulentní modely, rotující
+  soustava, …) počítané s `order = 1` bylo chybné; test: chyba se se zjemňováním sítě nezmenšovala (0,36 → 0,43).
+* **Analytický Jacobián `DGjacobi` a `DGpureFast` neodpovídal residuu u vazkých toků** (rozdíl 60–70 %):
+  na vnitřních stěnách chyběla derivace skokového členu DDG β0·[W]/dL, na hraničních stěnách se při perturbaci W
+  nepřepočítával skokový člen (v kódu byl komentář „derivace se taky meni“) a perturbace gradientu měnila jen
+  polovinu průměru (na hranici je dWR kopie dWL). Navíc se tu `beta0` trvale přepisoval podle globálního řádu.

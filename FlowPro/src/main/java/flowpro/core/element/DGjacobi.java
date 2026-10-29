@@ -252,6 +252,20 @@ public class DGjacobi extends DG {
                 }
                 // end IP =========================================
 
+                // DDG: the gradient of the viscous flux contains the jump term
+                // beta [W] / dL n (DG.residuumWall), its derivative was missing; the
+                // derivative of the flux with respect to the gradient is the average
+                double beta = (elemType.order == 1 && elems[TT[k]].elemType.order == 1) ? 0 : beta0;
+                double[] ddgJump = null; // sum_d dF_q/d(dW_m)_d n_d beta / dL, index nEqs * q + m
+                if (eqn.isDiffusive()) {
+                    ddgJump = new double[nEqs * nEqs];
+                    for (int qm = 0; qm < nEqs * nEqs; qm++) {
+                        for (int d = 0; d < dim; d++) {
+                            ddgJump[qm] += 0.5 * (adL[nEqs * nEqs * (d + 1) + qm] + adR[nEqs * nEqs * (d + 1) + qm]) * n[k][p][d] * beta / dL;
+                        }
+                    }
+                }
+
                 for (int m = 0; m < nEqs; m++) {
                     for (int q = 0; q < nEqs; q++) {
                         for (int i = 0; i < nBasis; i++) {
@@ -268,6 +282,7 @@ public class DGjacobi extends DG {
                                     for (int d = 0; d < dim; d++) {
                                         ADiag[nBasis * m + i][nBasis * q + j] -= 0.5 * Jac * weight * adL[nEqs * nEqs * (d + 1) + nEqs * q + m] * dBaseLeft[i][d] * baseLeft[j];
                                     }
+                                    ADiag[nBasis * m + i][nBasis * q + j] += Jac * weight * ddgJump[nEqs * q + m] * baseLeft[i] * baseLeft[j];
                                 }
                             }
                         }
@@ -290,6 +305,7 @@ public class DGjacobi extends DG {
                                     for (int d = 0; d < dim; d++) {
                                         Sous.A[nRBasis * m + i][nBasis * q + j] -= 0.5 * Jac * weight * adR[nEqs * nEqs * (d + 1) + nEqs * q + m] * dBaseRight[i][d] * baseLeft[j];
                                     }
+                                    Sous.A[nRBasis * m + i][nBasis * q + j] -= Jac * weight * ddgJump[nEqs * q + m] * baseRight[i] * baseLeft[j];
                                 }
                             }
                         }
@@ -326,9 +342,9 @@ public class DGjacobi extends DG {
                 }
 
                 if (eqn.isDiffusive()) {
-                    if (par.order == 1) {
-                        beta0 = 0;
-                    }
+                    // boundary face: the jump term of DDG is not used for elements of order 1
+                    // (as in DG.residuumWall, beta0 is not overwritten)
+                    double beta = elemType.order == 1 ? 0 : beta0;
                     double[] Wc = new double[nEqs];
                     double[] dWc = new double[nEqs * dim];
                     for (int m = 0; m < nEqs; m++) {
@@ -338,7 +354,7 @@ public class DGjacobi extends DG {
                             Wc[m] = WR[m];
                         }
                         for (int d = 0; d < dim; d++) {
-                            dWc[nEqs * d + m] = (dWL[nEqs * d + m] + dWR[nEqs * d + m]) / 2 + beta0 * (WR[m] - WL[m]) / dL * n[k][p][d];
+                            dWc[nEqs * d + m] = (dWL[nEqs * d + m] + dWR[nEqs * d + m]) / 2 + beta * (WR[m] - WL[m]) / dL * n[k][p][d];
                         }
                     }
                     double[] fvR0 = eqn.numericalDiffusiveFlux(Wc, dWc, n[k][p], TT[k], elemData);
@@ -354,8 +370,14 @@ public class DGjacobi extends DG {
                                 Wch[q] = WRh[q];
                             }
                         }
-                        double[] fvRh = eqn.numericalDiffusiveFlux(Wch, dWc, n[k][p], TT[k], elemData);
-                        //dWch !!!!!! derivace se taky meni podle Wc
+                        // the jump term of the gradient depends on WL and on the boundary value
+                        double[] dWch = new double[nEqs * dim];
+                        for (int q = 0; q < nEqs; q++) {
+                            for (int r = 0; r < dim; r++) {
+                                dWch[nEqs * r + q] = (dWL[nEqs * r + q] + dWR[nEqs * r + q]) / 2 + beta * (WRh[q] - WLh[q]) / dL * n[k][p][r];
+                            }
+                        }
+                        double[] fvRh = eqn.numericalDiffusiveFlux(Wch, dWch, n[k][p], TT[k], elemData);
                         for (int q = 0; q < nEqs; q++) {
                             double derfvR = (fvRh[q] - fvR0[q]) / h;
                             double derIP = c_IP * (WLh[q] - WL[q] - (WRh[q] - WR[q])) / h;
@@ -379,9 +401,9 @@ public class DGjacobi extends DG {
                             double[] dWLh = Mat.plusVec(dWL, dV);
                             double[] dWch = new double[nEqs * dim];
                             for (int q = 0; q < nEqs; q++) {
-
+                                // on the boundary dWR is a copy of dWL, both change
                                 for (int r = 0; r < dim; r++) {
-                                    dWch[nEqs * r + q] = (dWLh[nEqs * r + q] + dWR[nEqs * r + q]) / 2 + beta0 * (WR[q] - WL[q]) / dL * n[k][p][r];
+                                    dWch[nEqs * r + q] = dWLh[nEqs * r + q] + beta * (WR[q] - WL[q]) / dL * n[k][p][r];
                                 }
                             }
                             double[] fvRh = eqn.numericalDiffusiveFlux(Wc, dWch, n[k][p], TT[k], elemData);
