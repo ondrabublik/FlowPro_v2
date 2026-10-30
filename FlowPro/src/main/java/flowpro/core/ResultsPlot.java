@@ -80,6 +80,7 @@ public class ResultsPlot {
         String format = "txt";
         int iter = -1;
         int precision = 0;
+        int subdivision = 0; // -dN: every element divided into N parts per edge (any N >= 1)
         int smoothingIter = 0;
         String subName = "";
 
@@ -104,6 +105,12 @@ public class ResultsPlot {
                         case 'n': // sub name
                             subName = args[i].substring(2, args[i].length());
                             break;
+                        case 'd': // values in the points of the elements divided into N parts per edge
+                            subdivision = Integer.valueOf(args[i].substring(2, args[i].length()));
+                            break;
+                        case 'o': // output directory (in the simulation directory), default output
+                            outputPath = simulationPath + "/" + args[i].substring(2, args[i].length()) + "/";
+                            break;
                     }
                     break;
                 default:
@@ -114,6 +121,14 @@ public class ResultsPlot {
 
         props = new FlowProProperties();
         props.load(simulationPath + PARAMETER_FILE_NAME);
+
+        // the subdivision uses the polynomial solution (We.txt) like precision >= 2,
+        // but allows also one part per edge (the values in the vertices of the element)
+        int nParts = precision;
+        if (subdivision > 0) {
+            nParts = subdivision;
+            precision = Math.max(precision, 2);
+        }
 
         order = null;
         try {
@@ -366,7 +381,7 @@ public class ResultsPlot {
                 System.out.println();
                 System.out.println(variableName);
                 System.out.println("|        |");
-                double[] value = eqn.getResults(W[0], new double[eqn.nEqs() * dim], new double[dim], variableName);
+                double[] value = result(eqn, W[0], new double[eqn.nEqs() * dim], new double[dim], variableName);
                 for (int i = 0; i < TP.length; i++) {
                     double[][] vertices = new double[TP[i].length][dim];
                     for (int j = 0; j < TP[i].length; j++) {
@@ -378,7 +393,13 @@ public class ResultsPlot {
 
                     Basis basis = elemType.getBasis(transform);
                     int nBasis = basis.nBasis;
-                    LocalElementSubdivision triLoc = new LocalElementSubdivision(elemsType[i], precision);
+                    if (W[i].length != eqn.nEqs() * nBasis) {
+                        // e.g. the computation ran with a different order (override -p order=...)
+                        throw new IOException("the solution We.txt of element " + i + " has " + W[i].length
+                                + " coefficients, the order " + order[i] + " of parameters.txt (or order.txt) needs "
+                                + eqn.nEqs() * nBasis);
+                    }
+                    LocalElementSubdivision triLoc = new LocalElementSubdivision(elemsType[i], nParts);
                     double[][] xCoords = transform.getX(triLoc.xiCoord);
                     double[][][] dXiBasis = basis.getDerBasisXi(triLoc.xiCoord, dim);
                     double[][][] dXBasis = transform.transformBasis(triLoc.xiCoord, dXiBasis);
@@ -395,7 +416,7 @@ public class ResultsPlot {
                                 }
                             }
                         }
-                        values[j] = eqn.getResults(Wpoint, dWpoint, xCoords[j], variableName);
+                        values[j] = result(eqn, Wpoint, dWpoint, xCoords[j], variableName);
                     }
                     resCol.add(i, xCoords, triLoc.TP, values, triLoc.localType);
 
@@ -563,6 +584,21 @@ public class ResultsPlot {
                 }
             }
         }
+    }
+
+    /**
+     * Quantity of the results: W0, W1, ... are the components of the solution,
+     * the other names are evaluated by the model (Equation.getResults, the
+     * names of parameter results).
+     */
+    static double[] result(Equation eqn, double[] W, double[] dW, double[] X, String name) {
+        if (name.matches("W[0-9]+")) {
+            int m = Integer.parseInt(name.substring(1));
+            if (m < W.length) {
+                return new double[]{W[m]};
+            }
+        }
+        return eqn.getResults(W, dW, X, name);
     }
 
     class LocalElementSubdivision {

@@ -128,14 +128,42 @@ final class Tasks {
     }
 
     /**
-     * Creates a computation with the default parameters (subsonic flow of
-     * the Euler equations, the boundary conditions must be checked).
+     * Templates of the parameters of a new computation for the models of
+     * FlowPro (resources templates/NAME.txt). They describe a subsonic flow in a
+     * channel (boundary types -1 wall, -2 inlet, -3 outlet), the boundary
+     * conditions must be checked.
      */
-    static void createDefaultComputation(File target) throws IOException {
+    enum ModelTemplate {
+        EULER("Euler equations - compressible, inviscid", "euler"),
+        ISENTROPIC("Isentropic Euler equations - compressible, no energy equation", "isentropic"),
+        NAVIER_STOKES("Navier-Stokes equations - compressible, laminar", "navierstokes"),
+        RANS_SA("RANS - compressible, Spalart-Allmaras", "rans_sa"),
+        RANS_SST("RANS - compressible, k-omega SST", "rans_sst"),
+        INCOMPRESSIBLE("Incompressible Navier-Stokes - laminar", "incompressible"),
+        INCOMPRESSIBLE_SA("Incompressible RANS - Spalart-Allmaras", "incompressible_sa");
+
+        final String label;
+        final String resource;
+
+        ModelTemplate(String label, String resource) {
+            this.label = label;
+            this.resource = resource;
+        }
+
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
+
+    /**
+     * Creates a computation with the parameters of a model template.
+     */
+    static void createComputation(File target, ModelTemplate template) throws IOException {
         Files.createDirectories(target.toPath());
-        try (InputStream in = Tasks.class.getResourceAsStream("defaultParameters.txt")) {
+        try (InputStream in = Tasks.class.getResourceAsStream("templates/" + template.resource + ".txt")) {
             if (in == null) {
-                throw new IOException("the template of the parameters is missing in the application");
+                throw new IOException("the template " + template.resource + " is missing in the application");
             }
             Files.copy(in, new File(target, "parameters.txt").toPath(), StandardCopyOption.REPLACE_EXISTING);
         }

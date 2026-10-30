@@ -382,8 +382,10 @@ public class FlowProControl extends JFrame {
             sourceBox.setEnabled(copy.isSelected());
             copyComputations.setEnabled(copy.isSelected());
         });
+        JComboBox<Tasks.ModelTemplate> modelBox = new JComboBox<>(Tasks.ModelTemplate.values());
         Object[] form = {"name of the task (directory simulations/" + Tasks.DIR + "/NAME)", nameField, " ",
-            empty, copy, sourceBox, copyComputations};
+            empty, copy, sourceBox, copyComputations, " ",
+            "model of the first computation (unless the computations are copied)", modelBox};
         if (JOptionPane.showConfirmDialog(this, form, "New task", JOptionPane.OK_CANCEL_OPTION,
                 JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) {
             return;
@@ -420,7 +422,7 @@ public class FlowProControl extends JFrame {
                 }
             }
             if (!computationsCopied) {
-                Tasks.createDefaultComputation(new File(dir, firstComputation));
+                Tasks.createComputation(new File(dir, firstComputation), (Tasks.ModelTemplate) modelBox.getSelectedItem());
             }
         } catch (IOException ex) {
             error("The task cannot be created: " + ex.getMessage());
@@ -439,9 +441,11 @@ public class FlowProControl extends JFrame {
         }
         List<String> existing = Tasks.computations(taskDir());
         JTextField nameField = new JTextField(computation != null ? computation + "_2" : "default", 20);
-        String template = "default parameters (Euler equations, check the boundary conditions!)";
+        Tasks.ModelTemplate[] templates = Tasks.ModelTemplate.values();
         List<String> sources = new ArrayList<>();
-        sources.add(template);
+        for (Tasks.ModelTemplate template : templates) {
+            sources.add("new: " + template.label);
+        }
         for (String comp : existing) {
             sources.add("copy of " + comp);
         }
@@ -450,7 +454,8 @@ public class FlowProControl extends JFrame {
             sourceBox.setSelectedItem("copy of " + computation);
         }
         Object[] form = {"name of the computation of task " + task, nameField, " ",
-            "parameters (the results are never copied)", sourceBox};
+            "parameters - a model template (check the boundary conditions!) or a copy", sourceBox,
+            "(the results are never copied)"};
         if (JOptionPane.showConfirmDialog(this, form, "New computation", JOptionPane.OK_CANCEL_OPTION,
                 JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) {
             return;
@@ -466,11 +471,11 @@ public class FlowProControl extends JFrame {
             return;
         }
         try {
-            int source = sourceBox.getSelectedIndex();
-            if (source <= 0) {
-                Tasks.createDefaultComputation(dir);
+            int source = Math.max(0, sourceBox.getSelectedIndex());
+            if (source < templates.length) {
+                Tasks.createComputation(dir, templates[source]);
             } else {
-                Tasks.copyComputationSetup(new File(taskDir(), existing.get(source - 1)), dir);
+                Tasks.copyComputationSetup(new File(taskDir(), existing.get(source - templates.length)), dir);
             }
         } catch (IOException ex) {
             error("The computation cannot be created: " + ex.getMessage());
@@ -1299,6 +1304,38 @@ public class FlowProControl extends JFrame {
     }
 
     // ------------------------------------------------------------------- results
+    /**
+     * Quantity offered for plotting: a component of the solution (W0, W1, ...)
+     * or a quantity of parameter results evaluated by the model. Vector
+     * quantities are shown as the magnitude or as one component.
+     */
+    private static final class Quantity {
+
+        final String label;
+        final String name; // name for FlowPro postprocessing, null = mesh only
+        final int column; // -1 = scalar or magnitude of a vector, otherwise the component
+        final int wComponent; // column of W.txt for the element averages, -1 if not a component of W
+
+        Quantity(String label, String name, int column, int wComponent) {
+            this.label = label;
+            this.name = name;
+            this.column = column;
+            this.wComponent = wComponent;
+        }
+    }
+
+    private static final String[] DISPLAY_MODES = {"element averages", "inside elements (smooth)", "inside elements (flat)"};
+    private final JComboBox<String> displayCombo = new JComboBox<>(DISPLAY_MODES);
+    private final JSpinner subdivisionSpinner = new JSpinner(new SpinnerNumberModel(4, 1, 12, 1));
+    private final List<Quantity> quantities = new ArrayList<>();
+    private boolean updatingQuantities;
+    // last output of the postprocessing: key (computation, parts, time stamps), points, polygons, values
+    private String exportKey;
+    private double[][] exportPoints;
+    private int[][] exportPolygons;
+    private final Map<String, double[][]> exportValues = new LinkedHashMap<>();
+    private String exportRunningKey;
+
     private JPanel createResultTab() {
         JPanel panel = new JPanel(new BorderLayout());
         panel.add(resultView, BorderLayout.CENTER);
@@ -1306,10 +1343,23 @@ public class FlowProControl extends JFrame {
         controls.add(button("Load / refresh", this::loadResults));
         controls.add(new JLabel("show"));
         componentCombo.addActionListener(e -> {
-            resultView.component = componentCombo.getSelectedIndex() - 1;
-            resultView.repaint();
+            if (!updatingQuantities) {
+                showSelectedQuantity();
+            }
         });
         controls.add(componentCombo);
+        displayCombo.setToolTipText("element averages: one colour per element; inside elements: the polynomial "
+                + "solution evaluated in the elements divided into parts (FlowPro postprocessing)");
+        displayCombo.addActionListener(e -> {
+            subdivisionSpinner.setEnabled(displayCombo.getSelectedIndex() > 0);
+            showSelectedQuantity();
+        });
+        controls.add(displayCombo);
+        controls.add(new JLabel("parts per edge"));
+        subdivisionSpinner.setToolTipText("each element is divided into N parts per edge (higher orders need more)");
+        subdivisionSpinner.setEnabled(false);
+        subdivisionSpinner.addChangeListener(e -> showSelectedQuantity());
+        controls.add(subdivisionSpinner);
         JCheckBox edges = new JCheckBox("element edges", true);
         edges.addActionListener(e -> {
             resultView.showEdges = edges.isSelected();
@@ -1323,22 +1373,259 @@ public class FlowProControl extends JFrame {
     }
 
     private void loadResults() {
-        int previous = componentCombo.getSelectedIndex();
-        DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>();
-        model.addElement("mesh only");
+        int index = componentCombo.getSelectedIndex();
+        String previous = index >= 0 && index < quantities.size() ? quantities.get(index).label : null;
+        quantities.clear();
+        quantities.add(new Quantity("mesh only", null, -1, -1));
         int n = 0;
         if (task != null) {
             // a task without a computation: its mesh only (there is no W.txt in the task directory)
             n = resultView.load(meshDir(), computation == null ? taskDir() : computationDir());
             for (int i = 0; i < n; i++) {
-                model.addElement("W[" + i + "]" + (i == 0 ? " (density)" : ""));
+                quantities.add(new Quantity("W[" + i + "]", "W" + i, -1, i));
+            }
+            if (n > 0) {
+                for (String name : resultNames()) {
+                    quantities.add(new Quantity(name, name, -1, -1));
+                }
             }
         } else {
             resultView.load(new File(flowProDir, "-"), new File(flowProDir, "-"));
         }
-        componentCombo.setModel(model);
-        componentCombo.setSelectedIndex(previous > 0 && previous <= n ? previous : (n > 0 ? 1 : 0));
+        exportKey = null;
+        exportValues.clear();
+        setQuantityItems(previous, n > 0 ? 1 : 0);
         resultInfo.setText(task == null ? " " : resultView.getMessage());
+        showSelectedQuantity();
+    }
+
+    // names of parameter results of the selected computation (e.g. mach, pressure, velocity)
+    private List<String> resultNames() {
+        List<String> names = new ArrayList<>();
+        if (computation == null) {
+            return names;
+        }
+        File file = new File(computationDir(), "parameters.txt");
+        if (!file.isFile()) {
+            return names;
+        }
+        try {
+            String value = new ParameterFile(file).get("results");
+            if (value != null) {
+                for (String name : value.split(",")) {
+                    name = name.trim();
+                    if (!name.isEmpty() && !names.contains(name)) {
+                        names.add(name);
+                    }
+                }
+            }
+        } catch (IOException ex) {
+            // no results
+        }
+        return names;
+    }
+
+    private void setQuantityItems(String selectLabel, int defaultIndex) {
+        updatingQuantities = true;
+        DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>();
+        int select = defaultIndex;
+        for (int i = 0; i < quantities.size(); i++) {
+            model.addElement(quantities.get(i).label);
+            if (quantities.get(i).label.equals(selectLabel)) {
+                select = i;
+            }
+        }
+        componentCombo.setModel(model);
+        componentCombo.setSelectedIndex(Math.min(select, quantities.size() - 1));
+        updatingQuantities = false;
+    }
+
+    private void showSelectedQuantity() {
+        int index = componentCombo.getSelectedIndex();
+        Quantity q = index >= 0 && index < quantities.size() ? quantities.get(index) : null;
+        int mode = displayCombo.getSelectedIndex();
+        if (q == null || q.name == null || !resultView.hasMesh()) {
+            resultView.component = -1;
+            resultView.clearField();
+            return;
+        }
+        if (mode == 0 && q.wComponent >= 0) { // element averages of W directly from W.txt
+            resultView.component = q.wComponent;
+            resultView.clearField();
+            return;
+        }
+        // element averages of the other quantities: the mean of the values in the vertices
+        int parts = mode == 0 ? 1 : (Integer) subdivisionSpinner.getValue();
+        boolean smooth = mode == 1;
+        ensureExport(parts, () -> {
+            double[][] v = exportValues.get(q.name);
+            if (v == null) {
+                resultInfo.setText("quantity " + q.name + " was not computed (see the console on tab Run)");
+                resultView.clearField();
+                return;
+            }
+            double[] scalar = new double[v.length];
+            for (int i = 0; i < v.length; i++) {
+                if (q.column >= 0) {
+                    scalar[i] = q.column < v[i].length ? v[i][q.column] : Double.NaN;
+                } else if (v[i].length == 1) {
+                    scalar[i] = v[i][0];
+                } else {
+                    double sum = 0;
+                    for (double c : v[i]) {
+                        sum += c * c;
+                    }
+                    scalar[i] = Math.sqrt(sum);
+                }
+            }
+            String label = q.label + (mode == 0 ? " (element averages)" : " (" + parts + " parts per edge)");
+            resultView.setField(exportPoints, exportPolygons, scalar, smooth, label);
+            resultInfo.setText(resultView.getMessage());
+        });
+    }
+
+    /**
+     * Runs FlowPro postprocessing (java -jar FlowPro.jar postprocessing -ftxt -dN
+     * -oDIR W0 ... results ...) for the selected computation unless its output
+     * is up to date, then calls whenReady in the event thread.
+     */
+    private void ensureExport(int parts, Runnable whenReady) {
+        File compDir = computationDir();
+        File we = new File(compDir, "We.txt");
+        if (!we.isFile()) {
+            resultInfo.setText("no polynomial solution (We.txt) yet");
+            resultView.clearField();
+            return;
+        }
+        String dirName = "gui_d" + parts;
+        String key = compDir.getAbsolutePath() + "|" + parts + "|" + we.lastModified()
+                + "|" + new File(compDir, "parameters.txt").lastModified();
+        if (key.equals(exportKey)) {
+            whenReady.run();
+            return;
+        }
+        if (key.equals(exportRunningKey)) {
+            return; // the same postprocessing is running
+        }
+        List<String> names = new ArrayList<>();
+        for (Quantity q : quantities) {
+            if (q.name != null && !names.contains(q.name)) {
+                names.add(q.name);
+            }
+        }
+        List<String> cmd = new ArrayList<>();
+        cmd.add(javaExecutable());
+        cmd.add("-Xmx" + memorySpinner.getValue() + "g");
+        cmd.add("-Xss10m");
+        cmd.add("-jar");
+        cmd.add("FlowPro.jar");
+        cmd.add("postprocessing");
+        cmd.add("-ftxt");
+        cmd.add("-d" + parts);
+        cmd.add("-o" + dirName);
+        cmd.addAll(names);
+        cmd.add("--geometry");
+        cmd.add(geometryName());
+        cmd.add("--simulation");
+        cmd.add(computation);
+        exportRunningKey = key;
+        resultInfo.setText("evaluating the solution in the elements (FlowPro postprocessing) ...");
+        File outDir = new File(compDir, dirName);
+        Thread worker = new Thread(() -> {
+            StringBuilder output = new StringBuilder();
+            int exit;
+            try {
+                Process p = new ProcessBuilder(cmd).directory(flowProDir).redirectErrorStream(true).start();
+                try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = r.readLine()) != null) {
+                        output.append(line).append('\n');
+                    }
+                }
+                exit = p.waitFor();
+            } catch (IOException | InterruptedException ex) {
+                output.append(ex).append('\n');
+                exit = -1;
+            }
+            double[][] pts = null;
+            int[][] polys = null;
+            Map<String, double[][]> vals = new LinkedHashMap<>();
+            String problem = null;
+            if (exit == 0) {
+                try {
+                    pts = ResultView.readDoubles(new File(outDir, "vertices.txt"));
+                    polys = ResultView.readInts(new File(outDir, "elements.txt"));
+                    for (String name : names) {
+                        File f = new File(outDir, name + ".txt");
+                        if (f.isFile()) {
+                            vals.put(name, ResultView.readDoubles(f));
+                        }
+                    }
+                } catch (IOException | RuntimeException ex) {
+                    problem = "the output of the postprocessing cannot be read: " + ex.getMessage();
+                }
+            } else {
+                problem = "postprocessing failed (exit code " + exit + ")";
+            }
+            double[][] fpts = pts;
+            int[][] fpolys = polys;
+            String fproblem = problem;
+            String log = output.toString();
+            SwingUtilities.invokeLater(() -> exportFinished(key, fpts, fpolys, vals, fproblem, log, cmd));
+        }, "flowpro-postprocessing");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private void exportFinished(String key, double[][] pts, int[][] polys, Map<String, double[][]> vals,
+            String problem, String log, List<String> cmd) {
+        if (key.equals(exportRunningKey)) {
+            exportRunningKey = null;
+        }
+        if (problem != null) {
+            appendConsole(String.join(" ", cmd) + "\n" + log);
+            resultInfo.setText(problem + " - see the console on tab Run");
+            return;
+        }
+        if (computation == null || !key.startsWith(computationDir().getAbsolutePath() + "|")) {
+            return; // another computation has been selected meanwhile
+        }
+        exportKey = key;
+        exportPoints = pts;
+        exportPolygons = polys;
+        exportValues.clear();
+        exportValues.putAll(vals);
+        addVectorComponents();
+        // the selection may have changed while the postprocessing was running
+        showSelectedQuantity();
+    }
+
+    // vector quantities (several columns) get also the entries of their components
+    private void addVectorComponents() {
+        int index = componentCombo.getSelectedIndex();
+        String selected = index >= 0 && index < quantities.size() ? quantities.get(index).label : null;
+        boolean changed = false;
+        String[] axes = {"x", "y", "z"};
+        for (int i = 0; i < quantities.size(); i++) {
+            Quantity q = quantities.get(i);
+            double[][] v = q.name == null || q.column >= 0 || q.label.endsWith("(magnitude)") ? null : exportValues.get(q.name);
+            if (v == null || v.length == 0 || v[0].length < 2) {
+                continue;
+            }
+            // 2D: the third column of the exported vectors is zero
+            int nComponents = Math.min(v[0].length, 2);
+            quantities.set(i, new Quantity(q.name + " (magnitude)", q.name, -1, -1));
+            for (int c = 0; c < nComponents; c++) {
+                quantities.add(i + 1 + c, new Quantity(q.name + " (" + axes[c] + ")", q.name, c, -1));
+            }
+            if (q.label.equals(selected)) {
+                selected = q.name + " (magnitude)";
+            }
+            changed = true;
+        }
+        if (changed) {
+            setQuantityItems(selected, 0);
+        }
     }
 
     // =================================================================== misc

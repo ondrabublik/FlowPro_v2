@@ -10,6 +10,8 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
+import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferInt;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -20,8 +22,11 @@ import java.util.Locale;
 import javax.swing.JPanel;
 
 /**
- * Shows a 2D mesh (vertices.txt, elements.txt, boundaryType.txt) and the
- * element averages of the solution (W.txt) as a colour map.
+ * Shows a 2D mesh (vertices.txt, elements.txt, boundaryType.txt) and a scalar
+ * field as a colour map: either the element averages of the solution (W.txt,
+ * one colour per element), or values in the points of the elements divided
+ * into smaller polygons (exported by FlowPro postprocessing -dN), drawn with a
+ * linear colour interpolation (smooth) or one colour per polygon.
  *
  * @author obublik
  */
@@ -31,13 +36,28 @@ public class ResultView extends JPanel {
     private int[][] elements;
     private int[][] boundary;
     private double[][] values; // element averages, one row per element
-    public int component = -1; // -1 = mesh only
+    public int component = -1; // column of W.txt shown when there is no field, -1 = mesh only
     public boolean showEdges = true;
     private String message = "select a simulation and press 'Load'";
+
+    // field in the points of the divided elements
+    private double[][] fieldPoints;
+    private int[][] fieldPolygons;
+    private double[] fieldValues;
+    private boolean fieldSmooth;
+    private String fieldLabel;
 
     private double scale = 1, offsetX, offsetY;
     private int lastX, lastY;
     private double vmin, vmax;
+
+    private static final int[] LUT = new int[256];
+
+    static {
+        for (int i = 0; i < LUT.length; i++) {
+            LUT[i] = colormap(i / (LUT.length - 1.0)).getRGB();
+        }
+    }
 
     public ResultView() {
         setBackground(Color.WHITE);
@@ -72,7 +92,7 @@ public class ResultView extends JPanel {
         addMouseWheelListener(mouse);
     }
 
-    private static List<String[]> readRows(File file) throws IOException {
+    static List<String[]> readRows(File file) throws IOException {
         List<String[]> rows = new ArrayList<>();
         try (BufferedReader r = new BufferedReader(new FileReader(file))) {
             String line;
@@ -86,6 +106,32 @@ public class ResultView extends JPanel {
         return rows;
     }
 
+    static double[][] readDoubles(File file) throws IOException {
+        List<String[]> rows = readRows(file);
+        double[][] a = new double[rows.size()][];
+        for (int i = 0; i < a.length; i++) {
+            String[] row = rows.get(i);
+            a[i] = new double[row.length];
+            for (int j = 0; j < row.length; j++) {
+                a[i][j] = Double.parseDouble(row[j]);
+            }
+        }
+        return a;
+    }
+
+    static int[][] readInts(File file) throws IOException {
+        List<String[]> rows = readRows(file);
+        int[][] a = new int[rows.size()][];
+        for (int i = 0; i < a.length; i++) {
+            String[] row = rows.get(i);
+            a[i] = new int[row.length];
+            for (int j = 0; j < row.length; j++) {
+                a[i][j] = Integer.parseInt(row[j]);
+            }
+        }
+        return a;
+    }
+
     /**
      * @return number of solution components (columns of W.txt), 0 if there is
      * no solution
@@ -95,31 +141,18 @@ public class ResultView extends JPanel {
         elements = null;
         values = null;
         boundary = null;
+        clearField();
         try {
-            List<String[]> rows = readRows(new File(meshDir, "vertices.txt"));
-            points = new double[rows.size()][2];
-            for (int i = 0; i < rows.size(); i++) {
-                points[i][0] = Double.parseDouble(rows.get(i)[0]);
-                points[i][1] = rows.get(i).length > 1 ? Double.parseDouble(rows.get(i)[1]) : 0;
+            double[][] p = readDoubles(new File(meshDir, "vertices.txt"));
+            points = new double[p.length][2];
+            for (int i = 0; i < p.length; i++) {
+                points[i][0] = p[i][0];
+                points[i][1] = p[i].length > 1 ? p[i][1] : 0;
             }
-            rows = readRows(new File(meshDir, "elements.txt"));
-            elements = new int[rows.size()][];
-            for (int i = 0; i < rows.size(); i++) {
-                elements[i] = new int[rows.get(i).length];
-                for (int j = 0; j < elements[i].length; j++) {
-                    elements[i][j] = Integer.parseInt(rows.get(i)[j]);
-                }
-            }
+            elements = readInts(new File(meshDir, "elements.txt"));
             File bt = new File(meshDir, "boundaryType.txt");
             if (bt.isFile()) {
-                rows = readRows(bt);
-                boundary = new int[rows.size()][];
-                for (int i = 0; i < rows.size(); i++) {
-                    boundary[i] = new int[rows.get(i).length];
-                    for (int j = 0; j < boundary[i].length; j++) {
-                        boundary[i][j] = Integer.parseInt(rows.get(i)[j]);
-                    }
-                }
+                boundary = readInts(bt);
             }
         } catch (IOException | RuntimeException ex) {
             message = "mesh cannot be read: " + ex.getMessage();
@@ -132,15 +165,9 @@ public class ResultView extends JPanel {
         File w = new File(simulationDir, "W.txt");
         if (w.isFile()) {
             try {
-                List<String[]> rows = readRows(w);
-                if (rows.size() == elements.length) {
-                    values = new double[rows.size()][];
-                    for (int i = 0; i < rows.size(); i++) {
-                        values[i] = new double[rows.get(i).length];
-                        for (int j = 0; j < values[i].length; j++) {
-                            values[i][j] = Double.parseDouble(rows.get(i)[j]);
-                        }
-                    }
+                double[][] v = readDoubles(w);
+                if (v.length == elements.length) {
+                    values = v;
                     nComponents = values[0].length;
                 }
             } catch (IOException | RuntimeException ex) {
@@ -154,6 +181,35 @@ public class ResultView extends JPanel {
                 + (values != null ? ", solution W.txt loaded" : ", no solution (W.txt) yet");
         zoomToFit();
         return nComponents;
+    }
+
+    /**
+     * Shows a field in the points of the divided elements instead of the
+     * element averages.
+     *
+     * @param polygons triangles or quadrilaterals (indexes of the points)
+     * @param smooth linear interpolation of the colour inside the polygons,
+     * otherwise each polygon has the colour of the mean of its points
+     */
+    public void setField(double[][] fieldPoints, int[][] polygons, double[] values, boolean smooth, String label) {
+        this.fieldPoints = fieldPoints;
+        this.fieldPolygons = polygons;
+        this.fieldValues = values;
+        this.fieldSmooth = smooth;
+        this.fieldLabel = label;
+        repaint();
+    }
+
+    public void clearField() {
+        fieldPoints = null;
+        fieldPolygons = null;
+        fieldValues = null;
+        fieldLabel = null;
+        repaint();
+    }
+
+    public boolean hasMesh() {
+        return points != null && elements != null;
     }
 
     public String getMessage() {
@@ -192,51 +248,92 @@ public class ResultView extends JPanel {
                 (float) (c[i][2] + f * (c[i + 1][2] - c[i][2])));
     }
 
+    private Path2D polygon(double[][] pts, int[] indexes) {
+        Path2D path = new Path2D.Double();
+        for (int j = 0; j < indexes.length; j++) {
+            double[] p = pts[indexes[j]];
+            double sx = offsetX + scale * p[0], sy = offsetY - scale * p[1];
+            if (j == 0) {
+                path.moveTo(sx, sy);
+            } else {
+                path.lineTo(sx, sy);
+            }
+        }
+        path.closePath();
+        return path;
+    }
+
+    private void range(double[] v) {
+        vmin = Double.POSITIVE_INFINITY;
+        vmax = Double.NEGATIVE_INFINITY;
+        for (double x : v) {
+            if (Double.isFinite(x)) {
+                vmin = Math.min(vmin, x);
+                vmax = Math.max(vmax, x);
+            }
+        }
+        if (!(vmax > vmin)) {
+            vmax = vmin + 1e-12;
+        }
+    }
+
+    private int lutColor(double v) {
+        int k = (int) Math.round((v - vmin) / (vmax - vmin) * (LUT.length - 1));
+        return LUT[Math.max(0, Math.min(LUT.length - 1, k))];
+    }
+
     @Override
     protected void paintComponent(Graphics g0) {
         super.paintComponent(g0);
         Graphics2D g = (Graphics2D) g0;
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         if (points == null || elements == null) {
             g.setColor(Color.DARK_GRAY);
             g.drawString(message, 20, 30);
             return;
         }
-        boolean colour = values != null && component >= 0;
-        if (colour) {
-            vmin = Double.POSITIVE_INFINITY;
-            vmax = Double.NEGATIVE_INFINITY;
-            for (double[] v : values) {
-                if (component < v.length && Double.isFinite(v[component])) {
-                    vmin = Math.min(vmin, v[component]);
-                    vmax = Math.max(vmax, v[component]);
+        boolean field = fieldValues != null && fieldPoints != null && fieldPolygons != null;
+        boolean averages = !field && values != null && component >= 0;
+        String label = null;
+        if (field) {
+            range(fieldValues);
+            label = fieldLabel;
+            if (fieldSmooth) {
+                g.drawImage(renderSmooth(), 0, 0, null);
+            } else {
+                for (int[] poly : fieldPolygons) {
+                    double mean = 0;
+                    for (int j : poly) {
+                        mean += fieldValues[j];
+                    }
+                    g.setColor(new Color(lutColor(mean / poly.length)));
+                    Path2D path = polygon(fieldPoints, poly);
+                    g.fill(path);
+                    g.draw(path); // closes the hairline gaps between the polygons
                 }
             }
-            if (!(vmax > vmin)) {
-                vmax = vmin + 1e-12;
+        } else if (averages) {
+            double[] v = new double[values.length];
+            for (int i = 0; i < values.length; i++) {
+                v[i] = component < values[i].length ? values[i][component] : Double.NaN;
+            }
+            range(v);
+            label = "W[" + component + "] (element averages)";
+            for (int i = 0; i < elements.length; i++) {
+                if (Double.isFinite(v[i])) {
+                    g.setColor(new Color(lutColor(v[i])));
+                    Path2D path = polygon(points, elements[i]);
+                    g.fill(path);
+                    g.draw(path);
+                }
             }
         }
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setStroke(new BasicStroke(0.5f));
-        for (int i = 0; i < elements.length; i++) {
-            int[] el = elements[i];
-            Path2D path = new Path2D.Double();
-            for (int j = 0; j < el.length; j++) {
-                double[] p = points[el[j]];
-                double sx = offsetX + scale * p[0], sy = offsetY - scale * p[1];
-                if (j == 0) {
-                    path.moveTo(sx, sy);
-                } else {
-                    path.lineTo(sx, sy);
-                }
-            }
-            path.closePath();
-            if (colour && component < values[i].length) {
-                g.setColor(colormap((values[i][component] - vmin) / (vmax - vmin)));
-                g.fill(path);
-            }
-            if (showEdges) {
-                g.setColor(colour ? new Color(0, 0, 0, 50) : new Color(110, 130, 160));
-                g.draw(path);
+        boolean colour = field || averages;
+        if (showEdges || !colour) {
+            g.setColor(colour ? new Color(0, 0, 0, 50) : new Color(110, 130, 160));
+            for (int[] el : elements) {
+                g.draw(polygon(points, el));
             }
         }
         if (boundary != null) {
@@ -263,7 +360,57 @@ public class ResultView extends JPanel {
             g.drawRect(x, y0, 18, h);
             g.drawString(String.format(Locale.ROOT, "%.4g", vmax), x - 10, y0 - 6);
             g.drawString(String.format(Locale.ROOT, "%.4g", vmin), x - 10, y0 + h + 16);
-            g.drawString("W[" + component + "]", x - 4, 18);
+            int labelWidth = g.getFontMetrics().stringWidth(label);
+            g.drawString(label, Math.max(4, getWidth() - labelWidth - 8), 18);
+        }
+    }
+
+    /**
+     * Rasterises the polygons of the field (quadrilaterals as two triangles)
+     * with the value interpolated linearly in each triangle.
+     */
+    private BufferedImage renderSmooth() {
+        int w = Math.max(1, getWidth()), h = Math.max(1, getHeight());
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        int[] pixels = ((DataBufferInt) img.getRaster().getDataBuffer()).getData();
+        int n = fieldPoints.length;
+        double[] sx = new double[n], sy = new double[n];
+        for (int i = 0; i < n; i++) {
+            sx[i] = offsetX + scale * fieldPoints[i][0];
+            sy[i] = offsetY - scale * fieldPoints[i][1];
+        }
+        for (int[] poly : fieldPolygons) {
+            for (int t = 1; t + 1 < poly.length; t++) {
+                fillTriangle(pixels, w, h, sx, sy, poly[0], poly[t], poly[t + 1]);
+            }
+        }
+        return img;
+    }
+
+    private void fillTriangle(int[] pixels, int w, int h, double[] sx, double[] sy, int a, int b, int c) {
+        double x0 = sx[a], y0 = sy[a], x1 = sx[b], y1 = sy[b], x2 = sx[c], y2 = sy[c];
+        double det = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
+        if (det == 0 || !Double.isFinite(det)) {
+            return;
+        }
+        int minX = Math.max(0, (int) Math.floor(Math.min(x0, Math.min(x1, x2))));
+        int maxX = Math.min(w - 1, (int) Math.ceil(Math.max(x0, Math.max(x1, x2))));
+        int minY = Math.max(0, (int) Math.floor(Math.min(y0, Math.min(y1, y2))));
+        int maxY = Math.min(h - 1, (int) Math.ceil(Math.max(y0, Math.max(y1, y2))));
+        double va = fieldValues[a], vb = fieldValues[b], vc = fieldValues[c];
+        // a small tolerance, so that no gaps remain between neighbouring triangles
+        double eps = -1e-3;
+        for (int py = minY; py <= maxY; py++) {
+            double y = py + 0.5;
+            for (int px = minX; px <= maxX; px++) {
+                double x = px + 0.5;
+                double l0 = ((y1 - y2) * (x - x2) + (x2 - x1) * (y - y2)) / det;
+                double l1 = ((y2 - y0) * (x - x2) + (x0 - x2) * (y - y2)) / det;
+                double l2 = 1 - l0 - l1;
+                if (l0 >= eps && l1 >= eps && l2 >= eps) {
+                    pixels[py * w + px] = lutColor(l0 * va + l1 * vb + l2 * vc);
+                }
+            }
         }
     }
 

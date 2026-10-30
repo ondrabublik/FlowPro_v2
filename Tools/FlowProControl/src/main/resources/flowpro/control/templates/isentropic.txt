@@ -1,0 +1,53 @@
+%%% Isentropic Euler equations (no energy equation)
+%%% pressure is a function of density only
+%%% boundary types of the mesh: -1 wall, -2 inlet, -3 outlet, -4 inviscid wall (slip)
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% physical parameters %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%
+model = AdiabaticEulers
+results = mach, pressure, velocity, density   % quantities offered for plotting (GUI, postprocessing)
+dimension = 2
+
+%%% gas: either kappa, or cp and cv must be defined
+cv = 1        % heat capacity at constant volume
+kappa = 1.4   % heat capacity ratio
+
+%%% inlet (boundary type -2)
+isInletSupersonic = false  % true / false
+attackAngle = 0   % angle of attack
+%%% subsonic inlet (isInletSupersonic = false): stagnation state
+pIn0 = 1    % inlet stagnation pressure
+rhoIn0 = 1  % inlet stagnation density
+%TIn0 =     % inlet stagnation temperature (instead of rhoIn0)
+%%% supersonic inlet (isInletSupersonic = true)
+%pIn =      % inlet pressure
+%rhoIn =    % inlet density
+%vIn =      % inlet velocity
+
+%%% outlet (boundary type -3)
+pOut = 0.737   % outlet pressure (pIn0 / pOut gives the Mach number)
+%machInf =      % Mach number of undisturbed flow (instead of pOut)
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% numerical parameters %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+continueComputation = false   % true / false
+steps = 300   % number of time steps
+residuum = 1e-8   % relative residuum at which the computation stops
+saveRate = 50
+
+spatialMethod = DGpure
+timeMethod = BDF
+timeOrder = 1
+linearSolver = gmres
+preconditioner = ilu0
+order = 2   % order of accuracy in space (2 = linear polynomials in elements)
+CFL = 5   % CFL <= 0: adaptive CFL up to maxCFL
+threads = 4
+newtonIters = 1
+penalty = 1
+
+%%% stabilisation
+dampTol = 3     % shock sensor (artificial viscosity), 0 = off
+dampConst = 0

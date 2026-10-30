@@ -146,8 +146,13 @@ a pro dávkový režim.
   (`mesh/`, geometrie generátoru `geometry.geo2d`) a libovolný počet výpočtů (podadresáře s `parameters.txt`).
   Pro FlowPro je úloha geometrie `GUI/NAZEV` (`java -jar FlowPro.jar run -g GUI/NAZEV -s VYPOCET`).
 * **Seznam úloh** se svými výpočty, *New task* (prázdná, nebo kopie sítě existující úlohy či libovolné
-  geometrie ze `simulations` včetně parametrů jejích výpočtů), *New computation* (výchozí parametry nebo kopie
+  geometrie ze `simulations` včetně parametrů jejích výpočtů), *New computation* (šablona modelu nebo kopie
   parametrů jiného výpočtu úlohy, výsledky se nekopírují), *Rename*, *Delete*, *Open folder*.
+* **Šablony modelů** pro nový výpočet (i první výpočet nové úlohy): Euler (stlačitelný, `NavierStokes` bez
+  viskozity), izentropický Euler (`AdiabaticEulers`), laminární Navier–Stokes, RANS Spalart–Allmaras, RANS
+  k-ω SST, nestlačitelné Navier–Stokes a nestlačitelné RANS Spalart–Allmaras (`templates/*.txt` v aplikaci).
+  Popisují podzvukové proudění kanálem (okrajové podmínky −1 stěna, −2 vstup, −3 výstup) a obsahují
+  parametr `results` s veličinami modelu; všechny byly ověřeny výpočtem na síti GAMM.
 * **Mesh:** editor geometrie a generátor sítě úlohy. *Save mesh to task* zapíše síť do `mesh/` (upozorní,
   pokud mají výpočty výsledky ze staré sítě), *Save geometry only*, *Revert to saved*. Při přepnutí úlohy
   s neuloženými změnami se aplikace zeptá. Uložená trojúhelníková síť se při otevření úlohy zobrazí;
@@ -157,8 +162,16 @@ a pro dávkový režim.
 * **Run:** paměť JVM, počet domén, „continue computation“, dočasné přepsání parametrů (`CFL=10, steps=500`),
   *Run*, *Stop* (řízené – uloží výsledky), *Kill*, *Postprocessing*. Výstup programu se zobrazuje živě.
 * **Convergence:** živý graf residua (log. osa), osa x krok/fyzikální čas, hodnoty pod kurzorem.
-* **Mesh & results:** náhled sítě s barevně odlišenými okrajovými podmínkami a barevná mapa průměrů
-  řešení (`W.txt`) po složkách.
+* **Mesh & results:** náhled sítě s barevně odlišenými okrajovými podmínkami a barevná mapa. Lze zobrazit
+  složky řešení W[i] i veličiny z parametru `results` (počítá je model, `Equation.getResults`, vektory jako
+  velikost nebo složky). Režimy: *element averages* (jedna barva na element), *inside elements (smooth)*
+  (polynomiální řešení vyhodnocené v elementech rozdělených na N dílů na hranu, barva se uvnitř interpoluje –
+  vhodné pro vyšší řády), *inside elements (flat)* (jedna barva na díl). Hodnoty počítá FlowPro
+  (`postprocessing -ftxt -dN -ogui_dN W0 ... mach ...`) na pozadí do adresáře `gui_dN` výpočtu, výsledek se
+  použije znovu, dokud se nezmění `We.txt` nebo `parameters.txt`.
+* **Postprocessing:** nové volby `-dN` (body elementů rozdělených na N dílů na hranu, i N = 1), `-oDIR`
+  (výstupní adresář) a veličiny `W0`, `W1`, … (složky řešení). Pokud `We.txt` neodpovídá řádu z `parameters.txt`
+  (např. výpočet s přepsaným `order`), postprocessing skončí jasnou chybou místo nesmyslných hodnot.
 
 ---
 

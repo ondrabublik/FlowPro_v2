@@ -292,7 +292,7 @@ public class FlowProMain {
                 dgfem = new FlowProMain(cl.geometry, cl.simulation);
                 ResultsPlot plot = new ResultsPlot(dgfem.meshPath, dgfem.simulationPath, cl.rest.toArray(new String[0]), jarURLList);
                 plot.generateResults();
-                LOG.info("results were generated into " + dgfem.simulationPath + "output directory");
+                LOG.info("results were generated into directory " + dgfem.simulationPath + "output (or the one given by option -o)");
                 return 0;
             }
 
@@ -346,6 +346,8 @@ public class FlowProMain {
         System.out.println("  list                     list geometries and simulations in directory simulations");
         System.out.println("  params                   describe the parameters of file parameters.txt");
         System.out.println("  postprocessing [names] [-fFORMAT -iITER -pPRECISION -sSMOOTHING -nSUBNAME]");
+        System.out.println("                           -dN: values in the points of the elements divided into N parts per edge,");
+        System.out.println("                           -oDIR: output directory of the simulation, names W0, W1, ...: components of W");
         System.out.println("  slave PORT TYPE          slave of the parallel computation");
         System.out.println("  optimalisationExport TYPE, testDynamicModel DT, getParameters, help");
         System.out.println();

@@ -1,0 +1,55 @@
+%%% Incompressible RANS - Spalart-Allmaras model
+%%% walls (-1) are no-slip, inlet (-2) prescribes VIn, outlet (-3) pOut
+%%% boundary types of the mesh: -1 wall, -2 inlet, -3 outlet, -4 inviscid wall (slip)
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% physical parameters %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%
+model = IncompressibleNavierStokesSpalartAllmaras
+results = pressure, velocity, vorticity, mut   % quantities offered for plotting (GUI, postprocessing)
+dimension = 2
+isFlowViscous = true
+viscosity = 1.5e-5   % kinematic viscosity (air, density = 1)
+density = 1
+VIn = 10, 0          % inlet velocity, the reference velocity
+pOut = 0             % outlet pressure
+lRef = 1             % reference length
+
+%%% Spalart-Allmaras model
+vtIn = 3   % SA variable nu~/nu at the inlet
+sigma = 0.6667
+cb1 = 0.1355
+cb2 = 0.622
+ka = 0.41
+cw2 = 0.3
+cw3 = 2
+cv1 = 7.1
+ct1 = 1
+ct2 = 2
+ct3 = 1.2
+ct4 = 0.5
+Prt = 0.9      % turbulent Prandtl number
+C_prod = 2
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% numerical parameters %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+continueComputation = false   % true / false
+steps = 1000   % number of time steps
+residuum = 1e-8   % relative residuum at which the computation stops
+saveRate = 50
+
+spatialMethod = DGpureIncompressible
+timeMethod = BDFIncompressible
+timeOrder = 1
+linearSolver = gmres
+preconditioner = ilu0
+order = 2   % order of accuracy in space (2 = linear polynomials in elements)
+CFL = 10   % CFL <= 0: adaptive CFL up to maxCFL
+threads = 4
+newtonIters = 1
+penalty = 1
+
+%%% stabilisation
+dampTol = 0     % shock sensor (artificial viscosity), 0 = off
+dampConst = 0
