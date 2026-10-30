@@ -28,7 +28,7 @@ spatialMethod = DGpureIncompressible
 timeMethod = BDFIncompressible
 timeOrder = 1
 linearSolver = gmres
-preconditioner = ilu0
+preconditioner = blockilu0   % ilu0 fails on a zero pressure pivot (elements with two boundary faces)
 order = 2   % order of accuracy in space (2 = linear polynomials in elements)
 CFL = 10   % CFL <= 0: adaptive CFL up to maxCFL
 threads = 4

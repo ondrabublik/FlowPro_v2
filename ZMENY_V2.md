@@ -44,6 +44,19 @@ Sestavení: `gradlew build` (Java 17+, testováno s Javou 21). Výsledné JARy j
 * **Adaptivní CFL** (`CFL <= 0`): počáteční residuum `Double.MAX_VALUE` prošlo „filtrem“ a ~300 kroků zvětšovalo CFL 1,3× v každém kroku bez ohledu na konvergenci (GAMM: CFL 5e22), potom CFL při pomalé konvergenci klesalo 0,8× za krok. Nyní SER: `CFL_n = CFL_{n-1}·res_{n-1}/res_n`, změna max. 2× za krok, rozsah `[1, maxCFL]` (nový parametr, výchozí 1e4); po selhání řešiče se v dalším kroku CFL nezvětšuje.
 * **Start BDF2:** první krok počítal s `Wo2 = Wo`, tj. `(3/2)(W−Wo)/dt = R` – chyba O(dt) v prvním kroku a celkově jen 1. řád. Nyní je první krok výpočtu (i po `continueComputation`) BDF1, stejně i rychlost sítě. Ověřeno na GAMM (pevné `dt`, t = 0,1, Newton do 1e−11): poměr rozdílů při půlení `dt` 3,88 / 3,99 / 4,00 (dříve ≈ 2,1). Paralelní řešiče posílají slave procesům `{dt, dto}` (dříve si `dto` odvozovaly samy a ve druhé Newtonově iteraci bylo `dto = dt`) a opraveno prohození `dt`/`dto` při výpočtu rychlosti sítě ve slave procesech.
 * `shock_senzor2` sčítal hodnotu souseda do `rhoL` místo `rhoR`.
+* **Nestlačitelný model Spalart–Allmaras** (`IncompressibleNavierStokesSpalartAllmaras`), podle Allmaras,
+  Johnson, Spalart (2012):
+  * záporné ν̃ (podstřel polynomů na okraji úplavu) se dřív jen ořezávalo na nulu ve zdroji a toku, takže se
+    nijak netlumilo; nyní varianta „negative SA“ (zdroj `cb1(1−ct3)Ω ν̃ + cw1 (ν̃/d)²/Re`, difuze
+    `ν + ν̃ f_n`, `μt = 0`);
+  * modifikovaná vířivost S̃ mohla být u stěny záporná (`f_v2 < 0`, Ω ≈ 0), pak vyšlo záporné `r` i `f_w`
+    a destrukce se změnila v produkci (pro `S̃ = 0` a `ν̃ = 0` dokonce NaN); nyní ořezání S̃ (`c_v2 = 0,7`,
+    `c_v3 = 0,9`) a `r = 10` pro `S̃ ≤ 0`;
+  * člen `c_b2 |∇ν̃|²` nebyl dělen σ.
+  Ověřeno na GAMM (beze změny: 4,5e−7 za 61 kroků, ν̃/ν 1,1–34) a na kanálu s tělesem při Re 6,7e5
+  (residuum 3e−8 za 1000 kroků, dříve 6e−5 za 800). Podstřel na okraji úplavu na hrubé síti (h = 0,3)
+  zůstává (průměry v elementech min. −890 při max. 3e4, dříve −1050), řešením je jemnější síť.
+  Kopie modelu `IncompressibleNavierStokesSpalartAllmarasSecondaryInput` zůstala beze změny.
 * **Počáteční podmínka ze skriptu `initScript.js`** v původní verzi s GraalJS nefungovala (JS dostal nepřístupné Java pole → NaN, vrácené pole nešlo převést). Nyní funkce `init(x)` dostane JS pole a může vrátit pole i řetězec. Chybějící `init` nebo chyba ve skriptu = jasná chyba (dřív `NullPointerException` nebo tichý přechod na konstantní stav).
 * `LocalImplicitSolver`: `solveTime = +…` → `+=`; ukládání podle `timeSaveRate` po pokračování výpočtu neukládalo v každém kroku.
 * `MasterSolver`: porovnání `Integer` přes `==` → `Integer.compare`.
@@ -153,6 +166,9 @@ a pro dávkový režim.
   k-ω SST, nestlačitelné Navier–Stokes a nestlačitelné RANS Spalart–Allmaras (`templates/*.txt` v aplikaci).
   Popisují podzvukové proudění kanálem (okrajové podmínky −1 stěna, −2 vstup, −3 výstup) a obsahují
   parametr `results` s veličinami modelu; všechny byly ověřeny výpočtem na síti GAMM.
+  Nestlačitelné šablony používají `blockilu0`: rovnice kontinuity nemá časovou derivaci tlaku a u elementu
+  se dvěma hranicemi (roh kanálu) je tlak vázán jen přes jedinou vnitřní hranu, takže jedna tlaková
+  neznámá má nulovou diagonálu a `ilu0` (bez pivotace) skončí chybou „zero pivot“.
 * **Mesh:** editor geometrie a generátor sítě úlohy. *Save mesh to task* zapíše síť do `mesh/` (upozorní,
   pokud mají výpočty výsledky ze staré sítě), *Save geometry only*, *Revert to saved*. Při přepnutí úlohy
   s neuloženými změnami se aplikace zeptá. Uložená trojúhelníková síť se při otevření úlohy zobrazí;

@@ -64,6 +64,10 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
     double ct4;
     double Prt;
     double C_prod;
+    // constants of the negative SA model and of the modified vorticity (Allmaras, Johnson, Spalart 2012)
+    static final double CN1 = 16;
+    static final double CV2 = 0.7;
+    static final double CV3 = 0.9;
 
     @Override
     public int dim() {
@@ -294,7 +298,8 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
             }
         }
 
-        double vt = max(0, W[dim + 1]);
+        double vtSA = W[dim + 1]; // may be negative (negative SA model)
+        double vt = max(0, vtSA);
         double[] vtDer = new double[dim];
         for (int d = 0; d < dim; ++d) {
             vtDer[d] = dW[d * nEqs + dim + 1];
@@ -304,13 +309,17 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
         double fv1 = xi * xi * xi / (xi * xi * xi + cv1 * cv1 * cv1);
         double mut = rho * vt * fv1; // nejsem si jisty tim rho !!!!!!!!!!!
 
+        // diffusion coefficient of the SA variable, for a negative value
+        // fn keeps it positive (Allmaras, Johnson, Spalart 2012)
+        double vtDiff = vtSA * fn(vtSA / v);
+
         double[] flux = new double[nEqs];
         flux[0] = 0;
         for (int d = 0; d < dim; d++) {
             for (int f = 0; f < dim; f++) {
                 flux[f + 1] += (1 + mut) * stress[dim * d + f] * n[d] / Re;
             }
-            flux[dim + 1] += 1 / (Re * sigma) * (v + vt) * vtDer[d] * n[d];
+            flux[dim + 1] += 1 / (Re * sigma) * (v + vtDiff) * vtDer[d] * n[d];
         }
 
         return flux;
@@ -340,37 +349,45 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
             }
         }
 
-        double vt = max(0, W[dim + 1]);
+        double vt = W[dim + 1];
         double vtDerMag = 0;
         for (int d = 0; d < dim; ++d) {
             double vtDer = dW[d * nEqs + dim + 1];
             vtDerMag += vtDer * vtDer;
         }
 
-        // turbulence limit
-        if (vt < 0) {
-            vt = 0;
-        }
-
         double D = elem.currentWallDistance;
-
-        double xi = vt/v;
-        double ft2 = 0; //ct3*Math.exp(-ct4*xi*xi);
-        double fv1 = xi * xi * xi / (xi * xi * xi + cv1 * cv1 * cv1);
-        double fv2 = 1 - xi / (1 + xi * fv1);
         double Om = rotationMagnitude(velocityJac);
-        double S = Om + 1 / Re * vt / (ka * ka * D * D) * fv2;
-        double rt = vt / (Re * S * ka * ka * D * D);
-        if (rt > 10) {
-            rt = 10;
-        }
-        double g = rt + cw2 * (Math.pow(rt, 6.0) - rt);
-        double fw = g * Math.pow((1 + Math.pow(cw3, 6.0)) / (Math.pow(g, 6.0) + Math.pow(cw3, 6.0)), 1.0 / 6);
 
         double[] source = new double[nEqs];
-        source[dim + 1] = cb1 * (1 - ft2) * S * vt; // production
-        source[dim + 1] -= 1 / Re * (cw1 * fw - cb1 / (ka * ka) * ft2) * (vt / D) * (vt / D); // destruction
-        source[dim + 1] += 1 / Re * cb2 * vtDerMag;
+        if (vt >= 0) {
+            double xi = vt/v;
+            double ft2 = 0; //ct3*Math.exp(-ct4*xi*xi);
+            double fv1 = xi * xi * xi / (xi * xi * xi + cv1 * cv1 * cv1);
+            double fv2 = 1 - xi / (1 + xi * fv1);
+            // modified vorticity, fv2 < 0 must not make it negative (Allmaras, Johnson, Spalart 2012)
+            double Sbar = 1 / Re * vt / (ka * ka * D * D) * fv2;
+            double S;
+            if (Sbar >= -CV2 * Om) {
+                S = Om + Sbar;
+            } else {
+                S = Om + Om * (CV2 * CV2 * Om + CV3 * Sbar) / ((CV3 - 2 * CV2) * Om - Sbar);
+            }
+            double rt = S > 0 ? vt / (Re * S * ka * ka * D * D) : 10;
+            if (rt > 10) {
+                rt = 10;
+            }
+            double g = rt + cw2 * (Math.pow(rt, 6.0) - rt);
+            double fw = g * Math.pow((1 + Math.pow(cw3, 6.0)) / (Math.pow(g, 6.0) + Math.pow(cw3, 6.0)), 1.0 / 6);
+
+            source[dim + 1] = cb1 * (1 - ft2) * S * vt; // production
+            source[dim + 1] -= 1 / Re * (cw1 * fw - cb1 / (ka * ka) * ft2) * (vt / D) * (vt / D); // destruction
+        } else {
+            // negative SA model: the negative values decay back to zero
+            source[dim + 1] = cb1 * (1 - ct3) * Om * vt; // production
+            source[dim + 1] += 1 / Re * cw1 * (vt / D) * (vt / D); // destruction
+        }
+        source[dim + 1] += 1 / (Re * sigma) * cb2 * vtDerMag;
         source[dim + 1] = limitDestruction(source[dim + 1]);
         return source;
     }
@@ -607,6 +624,15 @@ public class IncompressibleNavierStokesSpalartAllmaras implements Equation {
             rotMag = Math.sqrt((U[0 * dim + 1] - U[1 * dim + 0]) * (U[0 * dim + 1] - U[1 * dim + 0]) + (U[0 * dim + 2] - U[2 * dim + 0]) * (U[0 * dim + 2] - U[2 * dim + 0]) + (U[2 * dim + 1] - U[1 * dim + 2]) * (U[2 * dim + 1] - U[1 * dim + 2]));
         }
         return rotMag;
+    }
+
+    // diffusion function of the negative SA model, xi = vt/v
+    double fn(double xi) {
+        if (xi >= 0) {
+            return 1;
+        }
+        double xi3 = xi * xi * xi;
+        return (CN1 + xi3) / (CN1 - xi3);
     }
 
     public double limitDestruction(double d) {
