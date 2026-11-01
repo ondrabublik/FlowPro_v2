@@ -9,6 +9,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -55,6 +56,9 @@ public class MeshEditorPanel extends JPanel {
     private final JTextField smoothingField = new JTextField(8);
     private final JTextField gridField = new JTextField(8);
     private final JTextField circleField = new JTextField(8);
+    private final JTextField regionSizeField = new JTextField(8);
+    private final JTextField refinementField = new JTextField(8);
+    private final JCheckBox blockTrianglesBox = new JCheckBox("divide blocks into triangles");
     private final JCheckBox snapBox = new JCheckBox("snap to grid");
     private final JCheckBox showMeshBox = new JCheckBox("show mesh", true);
 
@@ -63,6 +67,12 @@ public class MeshEditorPanel extends JPanel {
     private final JTextField localSizeField = new JTextField(8);
     private final JTextField aleField = new JTextField(8);
     private final JComboBox<String> defaultTypeCombo = new JComboBox<>(TYPE_CHOICES);
+
+    private final JLabel blockLabel = new JLabel("no block selected");
+    private final JTextField nxField = new JTextField(8);
+    private final JTextField nyField = new JTextField(8);
+    private final JTextField gxField = new JTextField(8);
+    private final JTextField gyField = new JTextField(8);
 
     private final JTextArea info = new JTextArea(8, 26);
     private final JLabel status = new JLabel(" ");
@@ -104,9 +114,10 @@ public class MeshEditorPanel extends JPanel {
                 parameterEdited();
             }
         };
-        for (JTextField f : new JTextField[]{meshSizeField, minAngleField, gradingField, smoothingField}) {
+        for (JTextField f : new JTextField[]{meshSizeField, minAngleField, gradingField, smoothingField, refinementField}) {
             f.getDocument().addDocumentListener(parameterListener);
         }
+        blockTrianglesBox.addActionListener(e -> parameterEdited());
         info.setEditable(false);
         info.setLineWrap(true);
         info.setWrapStyleWord(true);
@@ -114,14 +125,20 @@ public class MeshEditorPanel extends JPanel {
     }
 
     public static String helpText() {
-        return "Draw the outer boundary first (polygon, rectangle, circle, channel or NACA profile), "
-                + "then the bodies (holes).\n\n"
-                + "Polygon: click the points, double click or Enter closes it, Backspace removes the last point.\n"
-                + "Select: click a point (drag to move) or a segment (edit its boundary condition), "
-                + "double click a segment to insert a point, Delete removes a point / loop.\n"
+        return "Unstructured mesh: draw the outer boundary first (polygon, rectangle, circle, channel or NACA "
+                + "profile), then the bodies (holes).\n"
+                + "Polygon: click the points, double click or Enter closes it, Backspace removes the last point.\n\n"
+                + "Block mesh (as blockMesh of OpenFOAM): in mode Block click the 4 corners of a block, clicking an "
+                + "existing block vertex connects the blocks. Select a block (click inside it) to set its number "
+                + "of cells and grading, select its face to set the boundary type or to curve it (drag the circle "
+                + "in the middle of the face). If there are blocks, only they are meshed.\n\n"
+                + "Select: click a point (drag to move) or a segment, drag on an empty place to select everything "
+                + "in a box (Shift adds to the selection), then Delete removes it or the boundary type is applied "
+                + "to all the selected segments. Double click a segment to insert a point.\n"
                 + "Right or middle drag (or Ctrl + drag) pans, the wheel zooms.\n\n"
-                + "Local mesh size of a segment refines the mesh around it, the mesh size grows "
-                + "with the distance from the segment according to 'grading'.";
+                + "Refinement: local mesh size of a segment, refinement regions (Refine box / circle) - the mesh "
+                + "size grows with the distance from them according to 'grading' - and uniform refinement levels "
+                + "(every level divides each element into 4).";
     }
 
     // ---------------------------------------------------------------- public interface
@@ -211,7 +228,7 @@ public class MeshEditorPanel extends JPanel {
         bar.setFloatable(false);
         ButtonGroup group = new ButtonGroup();
         for (MeshCanvas.Mode mode : MeshCanvas.Mode.values()) {
-            JToggleButton b = new JToggleButton(mode.name().charAt(0) + mode.name().substring(1).toLowerCase());
+            JToggleButton b = new JToggleButton(mode.label);
             b.addActionListener(e -> canvas.setMode(mode));
             group.add(b);
             bar.add(b);
@@ -257,25 +274,34 @@ public class MeshEditorPanel extends JPanel {
         addRow(meshSection, "min angle [°]", minAngleField, 1);
         addRow(meshSection, "grading", gradingField, 2);
         addRow(meshSection, "smoothing iterations", smoothingField, 3);
+        addRow(meshSection, "uniform refinement levels", refinementField, 4);
+        refinementField.setToolTipText("every level divides each element into 4 (blocks: doubles the numbers of cells)");
         GridBagConstraints mc = new GridBagConstraints();
         mc.gridx = 0;
-        mc.gridy = 4;
+        mc.gridy = 5;
         mc.gridwidth = 2;
+        mc.anchor = GridBagConstraints.WEST;
+        meshSection.add(blockTrianglesBox, mc);
         mc.fill = GridBagConstraints.HORIZONTAL;
         mc.insets = new Insets(4, 2, 2, 2);
+        mc.gridy = 6;
         generateButton.addActionListener(e -> generateOrCancel());
         meshSection.add(generateButton, mc);
-        mc.gridy = 5;
+        mc.gridy = 7;
+        JButton refineButton = new JButton("Refine x2 (one more level)");
+        refineButton.addActionListener(e -> refineOnce());
+        meshSection.add(refineButton, mc);
+        mc.gridy = 8;
         showMeshBox.addActionListener(e -> {
             canvas.showMesh = showMeshBox.isSelected();
             canvas.repaint();
         });
         meshSection.add(showMeshBox, mc);
-        meshSectionRow = 6;
+        meshSectionRow = 9;
         panel.add(meshSection, c);
 
         c.gridy++;
-        JPanel sel = section("Selected segment / loop");
+        JPanel sel = section("Selection (segments, faces, regions)");
         GridBagConstraints sc = new GridBagConstraints();
         sc.gridx = 0;
         sc.gridy = 0;
@@ -283,32 +309,68 @@ public class MeshEditorPanel extends JPanel {
         sc.fill = GridBagConstraints.HORIZONTAL;
         sel.add(selectionLabel, sc);
         addRow(sel, "boundary type", typeCombo, 1);
-        addRow(sel, "local size (empty = h)", localSizeField, 2);
+        addRow(sel, "local size / region size", localSizeField, 2);
+        localSizeField.setToolTipText("mesh size at a segment (empty = h) or in a refinement region");
         addRow(sel, "ALE body tag (0 = none)", aleField, 3);
         sc.gridy = 4;
         sc.gridwidth = 1;
-        JButton applySeg = new JButton("Apply to segment");
+        JButton applySeg = new JButton("Apply to selected");
+        applySeg.setToolTipText("to the selected segments, block faces and refinement regions");
         applySeg.addActionListener(e -> applyAttributes(false));
         sel.add(applySeg, sc);
         sc.gridx = 1;
-        JButton applyLoop = new JButton("Apply to loop");
+        JButton applyLoop = new JButton("Apply to loop / block");
+        applyLoop.setToolTipText("to all the segments of the selected loop or all the faces of the selected block");
         applyLoop.addActionListener(e -> applyAttributes(true));
         sel.add(applyLoop, sc);
         panel.add(sel, c);
 
         c.gridy++;
+        JPanel blk = section("Block");
+        GridBagConstraints bc = new GridBagConstraints();
+        bc.gridx = 0;
+        bc.gridy = 0;
+        bc.gridwidth = 2;
+        bc.fill = GridBagConstraints.HORIZONTAL;
+        blk.add(blockLabel, bc);
+        addRow(blk, "cells along face 1", nxField, 1);
+        addRow(blk, "cells along face 2", nyField, 2);
+        addRow(blk, "grading along face 1", gxField, 3);
+        addRow(blk, "grading along face 2", gyField, 4);
+        gxField.setToolTipText("ratio of the last and the first cell from vertex 1 to vertex 2 (as simpleGrading of blockMesh)");
+        gyField.setToolTipText("ratio of the last and the first cell from vertex 2 to vertex 3 (as simpleGrading of blockMesh)");
+        bc.gridy = 5;
+        JButton applyBlock = new JButton("Apply division (also to connected blocks)");
+        applyBlock.addActionListener(e -> applyBlockDivision());
+        blk.add(applyBlock, bc);
+        bc.gridy = 6;
+        bc.gridwidth = 1;
+        JButton arcButton = new JButton("Arc face...");
+        arcButton.setToolTipText("curves the selected face into a circular arc through a given point");
+        arcButton.addActionListener(e -> arcFace());
+        blk.add(arcButton, bc);
+        bc.gridx = 1;
+        JButton straightButton = new JButton("Straight face");
+        straightButton.addActionListener(e -> straightFace());
+        blk.add(straightButton, bc);
+        panel.add(blk, c);
+
+        c.gridy++;
         JPanel draw = section("Drawing");
         addRow(draw, "grid step", gridField, 0);
         addRow(draw, "points of circle", circleField, 1);
+        addRow(draw, "size in new regions", regionSizeField, 2);
+        regionSizeField.setToolTipText("mesh size in new refinement regions (empty = h / 4)");
         GridBagConstraints dc = new GridBagConstraints();
         dc.gridx = 0;
-        dc.gridy = 2;
+        dc.gridy = 3;
         dc.gridwidth = 2;
         dc.anchor = GridBagConstraints.WEST;
         snapBox.addActionListener(e -> readDrawingFields());
         draw.add(snapBox, dc);
         gridField.addActionListener(e -> readDrawingFields());
         circleField.addActionListener(e -> readDrawingFields());
+        regionSizeField.addActionListener(e -> readDrawingFields());
         panel.add(draw, c);
 
         c.gridy++;
@@ -349,6 +411,8 @@ public class MeshEditorPanel extends JPanel {
         minAngleField.setText(fmt(geo.minAngle));
         gradingField.setText(fmt(geo.grading));
         smoothingField.setText(Integer.toString(geo.smoothingIterations));
+        refinementField.setText(Integer.toString(geo.refinementLevels));
+        blockTrianglesBox.setSelected(geo.blockTriangles);
         gridField.setText(fmt(canvas.gridStep));
         circleField.setText(Integer.toString(canvas.circlePoints));
         loading = false;
@@ -367,12 +431,18 @@ public class MeshEditorPanel extends JPanel {
             geo.minAngle = Double.parseDouble(minAngleField.getText().trim());
             geo.grading = Double.parseDouble(gradingField.getText().trim());
             geo.smoothingIterations = Integer.parseInt(smoothingField.getText().trim());
+            geo.refinementLevels = Integer.parseInt(refinementField.getText().trim());
         } catch (NumberFormatException ex) {
             error("Wrong mesh parameter: " + ex.getMessage());
             return false;
         }
+        geo.blockTriangles = blockTrianglesBox.isSelected();
         if (geo.meshSize <= 0 || geo.grading < 0) {
             error("The mesh size must be positive and the grading non-negative.");
+            return false;
+        }
+        if (geo.refinementLevels < 0 || geo.refinementLevels > 6) {
+            error("The number of uniform refinement levels must be between 0 and 6.");
             return false;
         }
         if (geo.minAngle > 33) {
@@ -387,6 +457,8 @@ public class MeshEditorPanel extends JPanel {
         try {
             canvas.gridStep = Double.parseDouble(gridField.getText().trim());
             canvas.circlePoints = Integer.parseInt(circleField.getText().trim());
+            String rs = regionSizeField.getText().trim();
+            canvas.regionSize = rs.isEmpty() ? Double.NaN : Double.parseDouble(rs);
         } catch (NumberFormatException ex) {
             error("Wrong number: " + ex.getMessage());
         }
@@ -406,39 +478,74 @@ public class MeshEditorPanel extends JPanel {
         }
     }
 
-    private void updateSelectionPanel() {
-        int l = canvas.getSelectedLoop();
-        if (l < 0 || l >= geo.loops.size()) {
-            selectionLabel.setText("nothing selected");
-            return;
-        }
-        Geometry.Loop loop = geo.loops.get(l);
-        int s = canvas.getSelectedSegment();
-        int p = canvas.getSelectedPoint();
-        int idx = s >= 0 ? s : (p >= 0 ? p : 0);
-        String what = s >= 0 ? "segment " + (s + 1) : (p >= 0 ? "point " + (p + 1) : "whole loop");
-        boolean outer = loop == geo.outerLoop();
-        selectionLabel.setText("<html>loop " + (l + 1) + (outer ? " (outer boundary)" : " (hole / body)")
-                + ", " + what + "<br>" + loop.size() + " points</html>");
-        int type = loop.types.get(idx);
-        String typeText = type + "  " + Geometry.typeName(type);
-        typeCombo.setSelectedItem(typeText);
+    private void selectType(int type) {
+        typeCombo.setSelectedItem(type + "  " + Geometry.typeName(type));
         for (String choice : TYPE_CHOICES) {
             if (parseType(choice) == type) {
                 typeCombo.setSelectedItem(choice);
             }
         }
-        double h = loop.sizes.get(idx);
-        localSizeField.setText(Double.isNaN(h) ? "" : fmt(h));
-        aleField.setText(Integer.toString(loop.aleTags.get(idx)));
+    }
+
+    private void updateSelectionPanel() {
+        updateBlockPanel();
+        int l = canvas.getSelectedLoop();
+        int b = canvas.getSelectedBlock();
+        int r = canvas.getSelectedRegion();
+        if (l >= 0 && l < geo.loops.size()) {
+            Geometry.Loop loop = geo.loops.get(l);
+            int s = canvas.getSelectedSegment();
+            int p = canvas.getSelectedPoint();
+            int idx = s >= 0 ? s : (p >= 0 ? p : 0);
+            String what = s >= 0 ? "segment " + (s + 1) : (p >= 0 ? "point " + (p + 1) : "whole loop");
+            boolean outer = loop == geo.outerLoop();
+            selectionLabel.setText("<html>loop " + (l + 1) + (outer ? " (outer boundary)" : " (hole / body)")
+                    + ", " + what + "<br>" + loop.size() + " points</html>");
+            selectType(loop.types.get(idx));
+            double h = loop.sizes.get(idx);
+            localSizeField.setText(Double.isNaN(h) ? "" : fmt(h));
+            aleField.setText(Integer.toString(loop.aleTags.get(idx)));
+        } else if (b >= 0 && b < geo.blocks.size()) {
+            Geometry.Block block = geo.blocks.get(b);
+            int f = canvas.getSelectedFace();
+            int k = Math.max(f, 0);
+            boolean inner = geo.blocksAt(block.v[k], block.v[(k + 1) % 4]).size() > 1;
+            selectionLabel.setText("<html>block " + (b + 1) + (f >= 0 ? ", face " + (f + 1)
+                    + (inner ? " (inner face)" : " (boundary)") : ", all faces") + "</html>");
+            selectType(block.types[k]);
+            localSizeField.setText("");
+            aleField.setText(Integer.toString(block.aleTags[k]));
+        } else if (r >= 0 && r < geo.regions.size()) {
+            Geometry.Region reg = geo.regions.get(r);
+            selectionLabel.setText("refinement region " + (r + 1) + (reg.circle ? " (circle)" : " (box)"));
+            localSizeField.setText(fmt(reg.h));
+        } else {
+            int segments = canvas.selectedSegments().size(), faces = canvas.selectedFaces().size();
+            int regions = canvas.selectedRegions().size();
+            if (segments + faces + regions == 0) {
+                selectionLabel.setText(canvas.multiSelectionSize() > 0 ? "points selected" : "nothing selected");
+            } else {
+                selectionLabel.setText("<html>selected: " + segments + " segments, " + faces + " block faces, "
+                        + regions + " regions</html>");
+            }
+        }
+    }
+
+    private void updateBlockPanel() {
+        int b = canvas.getSelectedBlock();
+        if (b < 0 || b >= geo.blocks.size()) {
+            blockLabel.setText("<html>no block selected<br>(click inside a block)</html>");
+            return;
+        }
+        Geometry.Block block = geo.blocks.get(b);
+        blockLabel.setText("<html>block " + (b + 1) + "<br>face 1 = vertex 1 to 2, face 2 = vertex 2 to 3</html>");
+        nxField.setText(Integer.toString(block.nx));
+        nyField.setText(Integer.toString(block.ny));
+        gxField.setText(fmt(block.gx));
+        gyField.setText(fmt(block.gy));
     }
 
     private void applyAttributes(boolean wholeLoop) {
-        int l = canvas.getSelectedLoop();
-        if (l < 0) {
-            error("Select a segment or a loop first (Select mode, click on a segment).");
-            return;
-        }
         Integer type = parseType((String) typeCombo.getSelectedItem());
         if (type == null) {
             error("The boundary type must be an integer (negative numbers are boundary conditions).");
@@ -459,18 +566,152 @@ public class MeshEditorPanel extends JPanel {
             error("Wrong value: " + ex.getMessage());
             return;
         }
-        Geometry.Loop loop = geo.loops.get(l);
-        int s = canvas.getSelectedSegment();
-        if (wholeLoop || s < 0) {
-            loop.setAll(type, h, ale);
+        int l = canvas.getSelectedLoop();
+        int b = canvas.getSelectedBlock();
+        if (wholeLoop) {
+            if (l >= 0) {
+                geo.loops.get(l).setAll(type, h, ale);
+            } else if (b >= 0) {
+                Geometry.Block block = geo.blocks.get(b);
+                for (int k = 0; k < 4; k++) {
+                    block.types[k] = type;
+                    block.aleTags[k] = ale;
+                }
+            } else {
+                error("Select a loop (click on its segment) or a block (click inside it) first.");
+                return;
+            }
         } else {
-            loop.types.set(s, type);
-            loop.sizes.set(s, h);
-            loop.aleTags.set(s, ale);
+            List<int[]> segments = canvas.selectedSegments();
+            List<int[]> faces = canvas.selectedFaces();
+            Set<Integer> regions = canvas.selectedRegions();
+            if (segments.isEmpty() && l >= 0) {
+                // a point is selected: the whole loop
+                for (int i = 0; i < geo.loops.get(l).size(); i++) {
+                    segments.add(new int[]{l, i});
+                }
+            }
+            if (segments.isEmpty() && faces.isEmpty() && regions.isEmpty()) {
+                error("Select segments, block faces or refinement regions first (Select mode: click them "
+                        + "or drag a box around them).");
+                return;
+            }
+            if (!regions.isEmpty() && Double.isNaN(h)) {
+                error("Enter the mesh size of the refinement region into 'local size / region size'.");
+                return;
+            }
+            for (int[] seg : segments) {
+                Geometry.Loop loop = geo.loops.get(seg[0]);
+                loop.types.set(seg[1], type);
+                loop.sizes.set(seg[1], h);
+                loop.aleTags.set(seg[1], ale);
+            }
+            for (int[] face : faces) {
+                geo.blocks.get(face[0]).types[face[1]] = type;
+                geo.blocks.get(face[0]).aleTags[face[1]] = ale;
+            }
+            for (int r : regions) {
+                geo.regions.get(r).h = h;
+            }
         }
         canvas.setMesh(null);
         canvas.repaint();
-        changed("boundary attributes changed, generate the mesh again");
+        changed("attributes changed, generate the mesh again");
+    }
+
+    private void applyBlockDivision() {
+        int b = canvas.getSelectedBlock();
+        if (b < 0) {
+            error("Select a block first (Select mode, click inside it).");
+            return;
+        }
+        int nx, ny;
+        double gx, gy;
+        try {
+            nx = Integer.parseInt(nxField.getText().trim());
+            ny = Integer.parseInt(nyField.getText().trim());
+            gx = Double.parseDouble(gxField.getText().trim());
+            gy = Double.parseDouble(gyField.getText().trim());
+        } catch (NumberFormatException ex) {
+            error("Wrong value: " + ex.getMessage());
+            return;
+        }
+        if (nx < 1 || ny < 1 || !(gx > 0) || !(gy > 0)) {
+            error("The numbers of cells must be at least 1 and the gradings positive.");
+            return;
+        }
+        // the connected blocks get the same division of their common faces
+        geo.setDivision(b, 0, nx, gx);
+        geo.setDivision(b, 1, ny, gy);
+        canvas.setMesh(null);
+        canvas.repaint();
+        updateBlockPanel();
+        changed("division of the blocks changed, generate the mesh again");
+    }
+
+    private int[] selectedFaceVertices() {
+        int b = canvas.getSelectedBlock(), f = canvas.getSelectedFace();
+        if (b < 0 || f < 0) {
+            error("Select a face of a block first (Select mode, click on the face).");
+            return null;
+        }
+        Geometry.Block block = geo.blocks.get(b);
+        return new int[]{block.v[f], block.v[(f + 1) % 4]};
+    }
+
+    private void arcFace() {
+        int[] e = selectedFaceVertices();
+        if (e == null) {
+            return;
+        }
+        Geometry.Arc arc = geo.arc(e[0], e[1]);
+        double[] p = arc != null ? new double[]{arc.x, arc.y} : geo.edgePoint(e[0], e[1], 0.5);
+        JTextField xf = new JTextField(fmt(p[0])), yf = new JTextField(fmt(p[1]));
+        Object[] form = {"The face becomes a circular arc through its end points and the point", "x", xf, "y", yf};
+        if (JOptionPane.showConfirmDialog(this, form, "Arc face", JOptionPane.OK_CANCEL_OPTION) != JOptionPane.OK_OPTION) {
+            return;
+        }
+        try {
+            double x = Double.parseDouble(xf.getText().trim()), y = Double.parseDouble(yf.getText().trim());
+            if (arc == null) {
+                geo.arcs.add(new Geometry.Arc(e[0], e[1], x, y));
+            } else {
+                arc.x = x;
+                arc.y = y;
+            }
+        } catch (NumberFormatException ex) {
+            error("Wrong number: " + ex.getMessage());
+            return;
+        }
+        canvas.setMesh(null);
+        canvas.repaint();
+        changed("face curved, generate the mesh again");
+    }
+
+    private void straightFace() {
+        int[] e = selectedFaceVertices();
+        if (e == null) {
+            return;
+        }
+        Geometry.Arc arc = geo.arc(e[0], e[1]);
+        if (arc != null) {
+            geo.arcs.remove(arc);
+            canvas.setMesh(null);
+            canvas.repaint();
+            changed("face straightened, generate the mesh again");
+        }
+    }
+
+    private void refineOnce() {
+        if (!readParameters()) {
+            return;
+        }
+        if (geo.refinementLevels >= 6) {
+            error("At most 6 uniform refinement levels.");
+            return;
+        }
+        refinementField.setText(Integer.toString(geo.refinementLevels + 1));
+        generateOrCancel();
     }
 
     // ---------------------------------------------------------------- meshing
@@ -519,7 +760,9 @@ public class MeshEditorPanel extends JPanel {
                     TriMesh mesh = get();
                     canvas.setMesh(mesh);
                     changed("Mesh generated:\n" + mesh.statistics().replace(", ", "\n")
-                            + "\n\nTriangles with an angle below 20° are highlighted.");
+                            + "\n\nPoor elements are highlighted."
+                            + (geo.hasBlocks() && !geo.loops.isEmpty()
+                            ? "\n\nOnly the blocks were meshed, the loops are ignored when there are blocks." : ""));
                 } catch (Exception ex) {
                     Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
                     info.setText("Meshing failed: " + cause.getMessage());

@@ -360,13 +360,18 @@ public class FlowProControl extends JFrame {
     }
 
     private void newTask() {
-        if (!confirmLeaveTask() || !confirmLeaveComputation()) {
+        // a geometry drawn without a task can become the mesh of the new task
+        boolean fromEditor = task == null && hasUnsavedEditorContent();
+        if ((!fromEditor && !confirmLeaveTask()) || !confirmLeaveComputation()) {
             return;
         }
-        JTextField nameField = new JTextField("task1", 20);
-        JRadioButton empty = new JRadioButton("empty - draw the geometry and generate the mesh", true);
+        JTextField nameField = new JTextField(unusedTaskName(), 20);
+        JRadioButton editor = new JRadioButton("the geometry and the mesh drawn in the mesh editor", fromEditor);
+        JRadioButton empty = new JRadioButton("empty - draw the geometry and generate the mesh", !fromEditor);
         JRadioButton copy = new JRadioButton("copy the mesh of an existing task or FlowPro geometry:");
+        editor.setVisible(fromEditor);
         ButtonGroup group = new ButtonGroup();
+        group.add(editor);
         group.add(empty);
         group.add(copy);
         List<String> sources = Tasks.geometries(flowProDir);
@@ -384,7 +389,7 @@ public class FlowProControl extends JFrame {
         });
         JComboBox<Tasks.ModelTemplate> modelBox = new JComboBox<>(Tasks.ModelTemplate.values());
         Object[] form = {"name of the task (directory simulations/" + Tasks.DIR + "/NAME)", nameField, " ",
-            empty, copy, sourceBox, copyComputations, " ",
+            editor, empty, copy, sourceBox, copyComputations, " ",
             "model of the first computation (unless the computations are copied)", modelBox};
         if (JOptionPane.showConfirmDialog(this, form, "New task", JOptionPane.OK_CANCEL_OPTION,
                 JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) {
@@ -424,15 +429,110 @@ public class FlowProControl extends JFrame {
             if (!computationsCopied) {
                 Tasks.createComputation(new File(dir, firstComputation), (Tasks.ModelTemplate) modelBox.getSelectedItem());
             }
+            if (editor.isSelected()) {
+                writeEditorToTask(dir);
+            }
         } catch (IOException ex) {
             error("The task cannot be created: " + ex.getMessage());
             if (!dir.isDirectory()) {
                 return;
             }
         }
+        meshEditor.setModified(false); // saved into the task or not wanted
         select(name, null);
         refreshTree();
         tabs.setSelectedComponent(meshTab);
+    }
+
+    /**
+     * @return true if the mesh editor contains a geometry or a mesh which is
+     * not saved in any task
+     */
+    private boolean hasUnsavedEditorContent() {
+        return meshEditor.isModified() && (!meshEditor.getGeometry().isEmpty() || meshEditor.getMesh() != null);
+    }
+
+    private String unusedTaskName() {
+        for (int i = 1;; i++) {
+            if (!new File(Tasks.tasksDir(flowProDir), "task" + i).exists()) {
+                return "task" + i;
+            }
+        }
+    }
+
+    /**
+     * Saves the geometry and, if it was generated, the mesh of the mesh editor
+     * into a task directory.
+     *
+     * @return files derived from the previous mesh which were deleted
+     */
+    private List<String> writeEditorToTask(File dir) throws IOException {
+        List<String> deleted = new ArrayList<>();
+        TriMesh mesh = meshEditor.getMesh();
+        if (mesh != null) {
+            File meshDir = new File(dir, Tasks.MESH);
+            deleted = mesh.exportFlowPro(meshDir);
+            meshEditor.getGeometry().save(new File(meshDir, Tasks.GEOMETRY_FILE));
+        }
+        meshEditor.getGeometry().save(new File(dir, Tasks.GEOMETRY_FILE));
+        return deleted;
+    }
+
+    /**
+     * Creates a new task (with one computation) from the geometry and the mesh
+     * of the mesh editor, so that a mesh made without a selected task is not
+     * lost.
+     */
+    private boolean saveAsNewTask() {
+        if (meshEditor.isMeshing()) {
+            JOptionPane.showMessageDialog(this, "The mesh is being generated, wait or cancel it.");
+            return false;
+        }
+        TriMesh mesh = meshEditor.getMesh();
+        if (meshEditor.getGeometry().isEmpty() && mesh == null) {
+            error("Draw the geometry and generate the mesh first.");
+            return false;
+        }
+        if (!meshEditor.readParameters() || !confirmLeaveComputation()) {
+            return false;
+        }
+        JTextField nameField = new JTextField(unusedTaskName(), 20);
+        JComboBox<Tasks.ModelTemplate> modelBox = new JComboBox<>(Tasks.ModelTemplate.values());
+        Object[] form = {mesh != null ? "The mesh is saved into a new task."
+            : "The geometry is saved into a new task (the mesh was not generated yet).",
+            "name of the task (directory simulations/" + Tasks.DIR + "/NAME)", nameField, " ",
+            "model of the first computation", modelBox};
+        if (JOptionPane.showConfirmDialog(this, form, "Save as a new task", JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) {
+            return false;
+        }
+        String name = nameField.getText().trim();
+        String problem = Tasks.checkName(name);
+        File dir = new File(Tasks.tasksDir(flowProDir), name);
+        if (problem == null && dir.exists()) {
+            problem = "Task " + name + " already exists.";
+        }
+        if (problem != null) {
+            error(problem);
+            return false;
+        }
+        try {
+            Files.createDirectories(dir.toPath());
+            Tasks.createComputation(new File(dir, "default"), (Tasks.ModelTemplate) modelBox.getSelectedItem());
+            writeEditorToTask(dir);
+        } catch (IOException ex) {
+            error("The task cannot be created: " + ex.getMessage());
+            refreshTree();
+            return false;
+        }
+        meshEditor.setModified(false);
+        select(name, null);
+        refreshTree();
+        tabs.setSelectedComponent(meshTab);
+        meshEditor.setInfo((mesh != null ? "The mesh was saved into the new task " : "The geometry was saved into the new task ")
+                + name + " (" + dir + ").\nIts computation 'default' was created, check its parameters "
+                + "(boundary conditions!) before running it.");
+        return true;
     }
 
     private void newComputation() {
@@ -601,14 +701,11 @@ public class FlowProControl extends JFrame {
         JPanel panel = new JPanel(new BorderLayout());
         JPanel header = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         header.add(meshHeader);
-        header.add(button("Import points...", () -> {
-            if (requireTask()) {
-                meshEditor.importPoints(taskDir());
-            }
-        }));
+        header.add(button("Import points...", () -> meshEditor.importPoints(task != null ? taskDir() : flowProDir)));
         header.add(button("Import geometry (.geo2d)...", this::importGeometry));
         panel.add(header, BorderLayout.NORTH);
         meshEditor.addMeshAction("Save mesh to task", this::saveMeshToTask);
+        meshEditor.addMeshAction("Save as new task...", this::saveAsNewTask);
         meshEditor.addMeshAction("Save geometry only", this::saveGeometryOnly);
         meshEditor.addMeshAction("Revert to saved", () -> {
             if (requireTask() && (!meshEditor.isModified()
@@ -623,7 +720,10 @@ public class FlowProControl extends JFrame {
 
     private void updateMeshHeader() {
         if (task == null) {
-            meshHeader.setText("<html><b>No task selected</b> - select a task or create a new one</html>");
+            meshHeader.setText(hasUnsavedEditorContent()
+                    ? "<html><b>No task selected</b> - <font color='#c00000'>not saved</font>, "
+                    + "'Save mesh to task' creates a new task</html>"
+                    : "<html><b>No task selected</b> - select a task, create a new one or draw a geometry</html>");
             return;
         }
         String state = meshEditor.isModified() ? "<font color='#c00000'>unsaved changes</font>"
@@ -667,7 +767,7 @@ public class FlowProControl extends JFrame {
                 TriMesh mesh = TriMesh.loadFlowPro(meshDir());
                 if (mesh == null) {
                     message = "The mesh of the task was not created by the generator (it does not consist "
-                            + "of triangles only), see it on tab Results. A mesh generated and saved here replaces it.";
+                            + "of triangles and quadrilaterals only), see it on tab Results. A mesh generated and saved here replaces it.";
                 } else {
                     meshEditor.setMesh(mesh);
                     message = "Mesh of the task:\n" + mesh.statistics().replace(", ", "\n");
@@ -684,10 +784,7 @@ public class FlowProControl extends JFrame {
     }
 
     private void importGeometry() {
-        if (!requireTask()) {
-            return;
-        }
-        if (meshEditor.isModified() && !confirm("Replace the changed geometry of task " + task + "?")) {
+        if (meshEditor.isModified() && !confirm("Replace the changed geometry" + (task != null ? " of task " + task : "") + "?")) {
             return;
         }
         JFileChooser fc = new JFileChooser(new File(flowProDir, "simulations"));
@@ -706,7 +803,10 @@ public class FlowProControl extends JFrame {
     }
 
     private boolean saveGeometryOnly() {
-        if (!requireTask() || !meshEditor.readParameters()) {
+        if (task == null) {
+            return saveAsNewTask();
+        }
+        if (!meshEditor.readParameters()) {
             return false;
         }
         try {
@@ -723,8 +823,8 @@ public class FlowProControl extends JFrame {
     }
 
     private boolean saveMeshToTask() {
-        if (!requireTask()) {
-            return false;
+        if (task == null) {
+            return saveAsNewTask(); // otherwise the mesh would be lost
         }
         TriMesh mesh = meshEditor.getMesh();
         if (mesh == null) {
@@ -750,9 +850,7 @@ public class FlowProControl extends JFrame {
             return false;
         }
         try {
-            List<String> deleted = mesh.exportFlowPro(meshDir());
-            meshEditor.getGeometry().save(new File(meshDir(), Tasks.GEOMETRY_FILE));
-            meshEditor.getGeometry().save(taskGeometryFile());
+            List<String> deleted = writeEditorToTask(taskDir());
             meshEditor.setModified(false);
             meshEditor.setInfo("The mesh was saved into " + meshDir() + ":\n" + mesh.statistics().replace(", ", "\n")
                     + (deleted.isEmpty() ? "" : "\n\nFiles derived from the previous mesh were deleted: " + deleted));
@@ -774,7 +872,21 @@ public class FlowProControl extends JFrame {
      */
     private boolean confirmLeaveTask() {
         if (task == null) {
-            return true;
+            if (!hasUnsavedEditorContent()) {
+                return true;
+            }
+            Object[] options = {"Save as new task", "Discard", "Cancel"};
+            int answer = JOptionPane.showOptionDialog(this, "The geometry" + (meshEditor.getMesh() != null ? " and the mesh" : "")
+                    + " in the mesh editor do not belong to any task.", "Unsaved mesh", JOptionPane.DEFAULT_OPTION,
+                    JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+            if (answer == 0) {
+                return saveAsNewTask();
+            }
+            if (answer == 1) {
+                meshEditor.setModified(false);
+                return true;
+            }
+            return false;
         }
         if (meshEditor.isMeshing()) {
             JOptionPane.showMessageDialog(this, "The mesh of task " + task + " is being generated, wait or cancel it.");

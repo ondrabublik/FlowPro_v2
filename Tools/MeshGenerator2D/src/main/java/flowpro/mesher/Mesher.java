@@ -20,8 +20,10 @@ import java.util.Set;
  * <li>removal of the triangles outside the domain and inside the holes,</li>
  * <li>Delaunay refinement (Ruppert): circumcentres of triangles which are too
  * large or have a small angle are inserted, encroached segments are split,</li>
- * <li>Laplacian smoothing of the interior vertices.</li>
+ * <li>Laplacian smoothing of the interior vertices,</li>
+ * <li>uniform refinement (every triangle divided into 4), if required.</li>
  * </ol>
+ * A geometry consisting of blocks is meshed by BlockMesher instead.
  *
  * @author obublik
  */
@@ -345,6 +347,9 @@ public class Mesher {
             double d = distanceToSegment(x, y, s[0], s[1], s[2], s[3]);
             h = Math.min(h, s[4] + geo.grading * d);
         }
+        for (Geometry.Region reg : geo.regions) {
+            h = Math.min(h, reg.h + geo.grading * reg.distance(x, y));
+        }
         return h;
     }
 
@@ -362,6 +367,13 @@ public class Mesher {
         if (problem != null) {
             throw new MeshingException(problem);
         }
+        if (geo.hasBlocks()) {
+            report("generating the block mesh");
+            TriMesh mesh = new BlockMesher(geo).generate();
+            mesh.computeNeighbours();
+            report(mesh.statistics());
+            return mesh;
+        }
         double[] bb = geo.boundingBox();
         scale = Math.hypot(bb[2] - bb[0], bb[3] - bb[1]);
         double hMin = geo.meshSize;
@@ -373,6 +385,11 @@ public class Mesher {
                     sizedSegments.add(new double[]{p[0], p[1], q[0], q[1], h});
                     hMin = Math.min(hMin, h);
                 }
+            }
+        }
+        for (Geometry.Region reg : geo.regions) {
+            if (reg.h > 0) {
+                hMin = Math.min(hMin, reg.h);
             }
         }
         minSegmentLength = 1e-3 * hMin;
@@ -400,6 +417,10 @@ public class Mesher {
         report("smoothing");
         TriMesh mesh = buildResult();
         mesh.smooth(geo.smoothingIterations);
+        for (int level = 0; level < geo.refinementLevels; level++) {
+            report("uniform refinement " + (level + 1));
+            mesh = mesh.refined();
+        }
         mesh.computeNeighbours();
         report(mesh.statistics());
         return mesh;

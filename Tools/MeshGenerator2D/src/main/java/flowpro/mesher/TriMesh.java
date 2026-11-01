@@ -13,22 +13,24 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiFunction;
 
 /**
- * Triangular mesh and its export into the FlowPro format.
+ * Mesh of triangles and quadrilaterals (blocks) and its export into the FlowPro
+ * format.
  *
  * @author obublik
  */
 public class TriMesh {
 
     public final double[][] points;
-    public final int[][] triangles; // counter-clockwise
+    public final int[][] elements; // triangles or quadrilaterals, counter-clockwise
     public final List<int[]> boundaryEdges; // {type, a, b, ale}
     public int[][] neighbours; // neighbours[i][k] across edge (v_k, v_k+1), boundary type if negative
 
-    public TriMesh(double[][] points, int[][] triangles, List<int[]> boundaryEdges) {
+    public TriMesh(double[][] points, int[][] elements, List<int[]> boundaryEdges) {
         this.points = points;
-        this.triangles = triangles;
+        this.elements = elements;
         this.boundaryEdges = boundaryEdges;
     }
 
@@ -36,18 +38,28 @@ public class TriMesh {
         return a < b ? ((long) a << 32) | b : ((long) b << 32) | a;
     }
 
-    private double area2(int[] t) {
-        double[] a = points[t[0]], b = points[t[1]], c = points[t[2]];
-        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    /**
+     * @return true if the element is convex and counter-clockwise
+     */
+    private boolean isValid(int[] t) {
+        int n = t.length;
+        for (int k = 0; k < n; k++) {
+            double[] a = points[t[(k + n - 1) % n]], b = points[t[k]], c = points[t[(k + 1) % n]];
+            if ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) <= 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
-     * @return angles of the triangle in degrees
+     * @return interior angles of the element in degrees
      */
     public double[] angles(int[] t) {
-        double[] ang = new double[3];
-        for (int k = 0; k < 3; k++) {
-            double[] a = points[t[k]], b = points[t[(k + 1) % 3]], c = points[t[(k + 2) % 3]];
+        int n = t.length;
+        double[] ang = new double[n];
+        for (int k = 0; k < n; k++) {
+            double[] a = points[t[k]], b = points[t[(k + 1) % n]], c = points[t[(k + n - 1) % n]];
             double ux = b[0] - a[0], uy = b[1] - a[1], vx = c[0] - a[0], vy = c[1] - a[1];
             ang[k] = Math.toDegrees(Math.atan2(Math.abs(ux * vy - uy * vx), ux * vx + uy * vy));
         }
@@ -55,8 +67,26 @@ public class TriMesh {
     }
 
     public double minAngle(int[] t) {
-        double[] a = angles(t);
-        return Math.min(a[0], Math.min(a[1], a[2]));
+        double min = 180;
+        for (double a : angles(t)) {
+            min = Math.min(min, a);
+        }
+        return min;
+    }
+
+    public double maxAngle(int[] t) {
+        double max = 0;
+        for (double a : angles(t)) {
+            max = Math.max(max, a);
+        }
+        return max;
+    }
+
+    /**
+     * @return true if the element should be highlighted as a poor one
+     */
+    public boolean isPoor(int[] t) {
+        return t.length == 3 ? minAngle(t) < 20 : maxAngle(t) > 150;
     }
 
     /**
@@ -80,12 +110,13 @@ public class TriMesh {
             adjacentVertices.add(new LinkedHashSet<>());
             adjacentTriangles.add(new ArrayList<>());
         }
-        for (int t = 0; t < triangles.length; t++) {
-            int[] tri = triangles[t];
-            for (int k = 0; k < 3; k++) {
+        for (int t = 0; t < elements.length; t++) {
+            int[] tri = elements[t];
+            int m = tri.length;
+            for (int k = 0; k < m; k++) {
                 adjacentTriangles.get(tri[k]).add(t);
-                adjacentVertices.get(tri[k]).add(tri[(k + 1) % 3]);
-                adjacentVertices.get(tri[k]).add(tri[(k + 2) % 3]);
+                adjacentVertices.get(tri[k]).add(tri[(k + 1) % m]);
+                adjacentVertices.get(tri[k]).add(tri[(k + m - 1) % m]);
             }
         }
         for (int it = 0; it < iterations; it++) {
@@ -104,18 +135,18 @@ public class TriMesh {
                 double oldX = points[v][0], oldY = points[v][1];
                 double oldQuality = Double.MAX_VALUE;
                 for (int t : adjacentTriangles.get(v)) {
-                    oldQuality = Math.min(oldQuality, minAngle(triangles[t]));
+                    oldQuality = Math.min(oldQuality, minAngle(elements[t]));
                 }
                 points[v][0] = x;
                 points[v][1] = y;
                 double newQuality = Double.MAX_VALUE;
                 boolean valid = true;
                 for (int t : adjacentTriangles.get(v)) {
-                    if (area2(triangles[t]) <= 0) {
+                    if (!isValid(elements[t])) {
                         valid = false;
                         break;
                     }
-                    newQuality = Math.min(newQuality, minAngle(triangles[t]));
+                    newQuality = Math.min(newQuality, minAngle(elements[t]));
                 }
                 if (!valid || newQuality < oldQuality) {
                     points[v][0] = oldX;
@@ -126,8 +157,8 @@ public class TriMesh {
     }
 
     /**
-     * Neighbours in the FlowPro convention: face k of a triangle is the edge
-     * (v_k, v_(k+1) mod 3), the value is the index of the neighbouring element
+     * Neighbours in the FlowPro convention: face k of an element is the edge
+     * (v_k, v_(k+1) mod n), the value is the index of the neighbouring element
      * or the (negative) boundary type.
      */
     public void computeNeighbours() {
@@ -136,10 +167,12 @@ public class TriMesh {
             boundaryType.put(key(e[1], e[2]), e[0]);
         }
         Map<Long, int[]> faces = new HashMap<>();
-        neighbours = new int[triangles.length][3];
-        for (int t = 0; t < triangles.length; t++) {
-            for (int k = 0; k < 3; k++) {
-                long key = key(triangles[t][k], triangles[t][(k + 1) % 3]);
+        neighbours = new int[elements.length][];
+        for (int t = 0; t < elements.length; t++) {
+            int n = elements[t].length;
+            neighbours[t] = new int[n];
+            for (int k = 0; k < n; k++) {
+                long key = key(elements[t][k], elements[t][(k + 1) % n]);
                 int[] other = faces.get(key);
                 if (other == null) {
                     faces.put(key, new int[]{t, k});
@@ -154,21 +187,75 @@ public class TriMesh {
 
     public String statistics() {
         double min = 180, max = 0, sum = 0;
-        int below20 = 0;
-        for (int[] t : triangles) {
-            double[] a = angles(t);
-            double tmin = Math.min(a[0], Math.min(a[1], a[2]));
+        int nTri = 0, nQuad = 0, poor = 0;
+        for (int[] t : elements) {
+            double tmin = minAngle(t);
             min = Math.min(min, tmin);
-            max = Math.max(max, Math.max(a[0], Math.max(a[1], a[2])));
+            max = Math.max(max, maxAngle(t));
             sum += tmin;
-            if (tmin < 20) {
-                below20++;
+            if (t.length == 3) {
+                nTri++;
+            } else {
+                nQuad++;
+            }
+            if (isPoor(t)) {
+                poor++;
             }
         }
-        return String.format(Locale.ROOT, "%d vertices, %d triangles, %d boundary edges, min angle %.1f deg, max angle %.1f deg, "
-                + "mean min angle %.1f deg, triangles with angle < 20 deg: %d",
-                points.length, triangles.length, boundaryEdges.size(), min, max,
-                triangles.length > 0 ? sum / triangles.length : 0, below20);
+        String counts = nQuad == 0 ? nTri + " triangles"
+                : (nTri == 0 ? nQuad + " quadrilaterals" : nTri + " triangles, " + nQuad + " quadrilaterals");
+        return String.format(Locale.ROOT, "%d vertices, %s, %d boundary edges, min angle %.1f deg, max angle %.1f deg, "
+                + "mean min angle %.1f deg, poor elements (triangle angle < 20 deg, quadrilateral angle > 150 deg): %d",
+                points.length, counts, boundaryEdges.size(), min, max,
+                elements.length > 0 ? sum / elements.length : 0, poor);
+    }
+
+    /**
+     * Uniform refinement: every triangle is divided into 4 triangles, every
+     * quadrilateral into 4 quadrilaterals (the edges are halved).
+     */
+    public TriMesh refined() {
+        List<double[]> pts = new ArrayList<>();
+        for (double[] p : points) {
+            pts.add(p.clone());
+        }
+        Map<Long, Integer> midpoints = new HashMap<>();
+        BiFunction<Integer, Integer, Integer> mid = (a, b) -> midpoints.computeIfAbsent(key(a, b), k -> {
+            pts.add(new double[]{(points[a][0] + points[b][0]) / 2, (points[a][1] + points[b][1]) / 2});
+            return pts.size() - 1;
+        });
+        List<int[]> els = new ArrayList<>();
+        for (int[] t : elements) {
+            int n = t.length;
+            int[] m = new int[n];
+            for (int k = 0; k < n; k++) {
+                m[k] = mid.apply(t[k], t[(k + 1) % n]);
+            }
+            if (n == 3) {
+                els.add(new int[]{t[0], m[0], m[2]});
+                els.add(new int[]{m[0], t[1], m[1]});
+                els.add(new int[]{m[2], m[1], t[2]});
+                els.add(new int[]{m[0], m[1], m[2]});
+            } else {
+                double cx = 0, cy = 0;
+                for (int v : t) {
+                    cx += points[v][0] / n;
+                    cy += points[v][1] / n;
+                }
+                pts.add(new double[]{cx, cy});
+                int c = pts.size() - 1;
+                for (int k = 0; k < n; k++) {
+                    els.add(new int[]{t[k], m[k], c, m[(k + n - 1) % n]});
+                }
+            }
+        }
+        List<int[]> boundary = new ArrayList<>();
+        for (int[] e : boundaryEdges) {
+            int m = mid.apply(e[1], e[2]);
+            boundary.add(new int[]{e[0], e[1], m, e[3]});
+            boundary.add(new int[]{e[0], m, e[2], e[3]});
+        }
+        return new TriMesh(pts.toArray(new double[0][]), els.toArray(new int[0][]), boundary);
     }
 
     private static List<String[]> readRows(File file) throws IOException {
@@ -189,7 +276,7 @@ public class TriMesh {
      * Reads a mesh in the FlowPro format written by exportFlowPro.
      *
      * @return null if the mesh does not exist or if it is not a mesh of
-     * triangles only (it cannot be shown by the generator then)
+     * triangles and quadrilaterals (it cannot be shown by the generator then)
      */
     public static TriMesh loadFlowPro(File meshDir) throws IOException {
         File elementType = new File(meshDir, "elementType.txt");
@@ -197,7 +284,7 @@ public class TriMesh {
             return null;
         }
         for (String[] row : readRows(elementType)) {
-            if (!row[0].equals("3")) {
+            if (!row[0].equals("3") && !row[0].equals("4")) {
                 return null;
             }
         }
@@ -209,10 +296,11 @@ public class TriMesh {
                 points[i][1] = Double.parseDouble(rows.get(i)[1]);
             }
             rows = readRows(new File(meshDir, "elements.txt"));
-            int[][] triangles = new int[rows.size()][3];
-            for (int i = 0; i < triangles.length; i++) {
-                for (int k = 0; k < 3; k++) {
-                    triangles[i][k] = Integer.parseInt(rows.get(i)[k]);
+            int[][] elements = new int[rows.size()][];
+            for (int i = 0; i < elements.length; i++) {
+                elements[i] = new int[rows.get(i).length];
+                for (int k = 0; k < elements[i].length; k++) {
+                    elements[i][k] = Integer.parseInt(rows.get(i)[k]);
                 }
             }
             Map<Long, Integer> ale = new HashMap<>();
@@ -230,14 +318,15 @@ public class TriMesh {
                     boundary.add(new int[]{Integer.parseInt(row[0]), a, b, ale.getOrDefault(key(a, b), 0)});
                 }
             }
-            TriMesh mesh = new TriMesh(points, triangles, boundary);
+            TriMesh mesh = new TriMesh(points, elements, boundary);
             File nb = new File(meshDir, "neighbors.txt");
             if (nb.isFile()) {
                 rows = readRows(nb);
-                if (rows.size() == triangles.length) {
-                    mesh.neighbours = new int[triangles.length][3];
-                    for (int i = 0; i < triangles.length; i++) {
-                        for (int k = 0; k < 3; k++) {
+                if (rows.size() == elements.length) {
+                    mesh.neighbours = new int[elements.length][];
+                    for (int i = 0; i < elements.length; i++) {
+                        mesh.neighbours[i] = new int[elements[i].length];
+                        for (int k = 0; k < elements[i].length; k++) {
                             mesh.neighbours[i][k] = Integer.parseInt(rows.get(i)[k]);
                         }
                     }
@@ -247,6 +336,14 @@ public class TriMesh {
         } catch (RuntimeException ex) {
             throw new IOException("the mesh in " + meshDir + " cannot be read: " + ex.getMessage(), ex);
         }
+    }
+
+    private static String join(int[] values) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < values.length; i++) {
+            sb.append(i > 0 ? " " : "").append(values[i]);
+        }
+        return sb.append('\n').toString();
     }
 
     /**
@@ -270,13 +367,13 @@ public class TriMesh {
             }
         }
         try (BufferedWriter w = new BufferedWriter(new FileWriter(new File(meshDir, "elements.txt")))) {
-            for (int[] t : triangles) {
-                w.write(t[0] + " " + t[1] + " " + t[2] + "\n");
+            for (int[] t : elements) {
+                w.write(join(t));
             }
         }
         try (BufferedWriter w = new BufferedWriter(new FileWriter(new File(meshDir, "elementType.txt")))) {
-            for (int i = 0; i < triangles.length; i++) {
-                w.write("3\n");
+            for (int[] t : elements) {
+                w.write(t.length + "\n");
             }
         }
         try (BufferedWriter w = new BufferedWriter(new FileWriter(new File(meshDir, "boundaryType.txt")))) {
@@ -286,7 +383,7 @@ public class TriMesh {
         }
         try (BufferedWriter w = new BufferedWriter(new FileWriter(new File(meshDir, "neighbors.txt")))) {
             for (int[] nb : neighbours) {
-                w.write(nb[0] + " " + nb[1] + " " + nb[2] + "\n");
+                w.write(join(nb));
             }
         }
         boolean hasAle = false;

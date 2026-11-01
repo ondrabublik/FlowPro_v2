@@ -6,7 +6,9 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 
@@ -103,13 +105,305 @@ public class Geometry {
         }
     }
 
+    /**
+     * Region (rectangle or circle) where the mesh size is limited, the size
+     * grows with the distance from the region according to 'grading'.
+     */
+    public static class Region {
+
+        public boolean circle;
+        // rectangle: corners (x0, y0), (x1, y1); circle: centre (x0, y0), radius r
+        public double x0, y0, x1, y1, r;
+        public double h;
+
+        public static Region box(double xa, double ya, double xb, double yb, double h) {
+            Region reg = new Region();
+            reg.x0 = Math.min(xa, xb);
+            reg.y0 = Math.min(ya, yb);
+            reg.x1 = Math.max(xa, xb);
+            reg.y1 = Math.max(ya, yb);
+            reg.h = h;
+            return reg;
+        }
+
+        public static Region circle(double cx, double cy, double r, double h) {
+            Region reg = new Region();
+            reg.circle = true;
+            reg.x0 = cx;
+            reg.y0 = cy;
+            reg.r = r;
+            reg.h = h;
+            return reg;
+        }
+
+        /**
+         * distance of a point from the region, 0 inside
+         */
+        public double distance(double x, double y) {
+            if (circle) {
+                return Math.max(0, Math.hypot(x - x0, y - y0) - r);
+            }
+            double dx = Math.max(0, Math.max(x0 - x, x - x1));
+            double dy = Math.max(0, Math.max(y0 - y, y - y1));
+            return Math.hypot(dx, dy);
+        }
+
+        public void move(double dx, double dy) {
+            x0 += dx;
+            y0 += dy;
+            if (!circle) {
+                x1 += dx;
+                y1 += dy;
+            }
+        }
+
+        public double[] boundingBox() {
+            return circle ? new double[]{x0 - r, y0 - r, x0 + r, y0 + r} : new double[]{x0, y0, x1, y1};
+        }
+    }
+
+    /**
+     * Block of a structured mesh (as in blockMesh of OpenFOAM): a curved
+     * quadrilateral given by 4 block vertices in counter-clockwise order. Its
+     * face k goes from vertex k to vertex k+1. Faces 0 and 2 are divided into
+     * nx cells, faces 1 and 3 into ny cells. gx is the ratio of the last and
+     * the first cell in the direction v0 -> v1, gy in the direction v1 -> v2.
+     * Faces which are not shared with another block are boundaries of type
+     * types[k].
+     */
+    public static class Block {
+
+        public final int[] v = new int[4];
+        public int nx = 10, ny = 10;
+        public double gx = 1, gy = 1;
+        public final int[] types = {WALL, WALL, WALL, WALL};
+        public final int[] aleTags = new int[4];
+
+        public int cells(int face) {
+            return face % 2 == 0 ? nx : ny;
+        }
+
+        public void setCells(int face, int n) {
+            if (face % 2 == 0) {
+                nx = n;
+            } else {
+                ny = n;
+            }
+        }
+
+        /**
+         * grading of a face in the direction from its vertex k to vertex k+1
+         */
+        public double grading(int face) {
+            double g = face % 2 == 0 ? gx : gy;
+            return face < 2 ? g : 1 / g;
+        }
+
+        public void setGrading(int face, double g) {
+            double value = face < 2 ? g : 1 / g;
+            if (face % 2 == 0) {
+                gx = value;
+            } else {
+                gy = value;
+            }
+        }
+    }
+
+    /**
+     * Edge between block vertices a and b curved as a circular arc through
+     * point (x, y).
+     */
+    public static class Arc {
+
+        public int a, b;
+        public double x, y;
+
+        public Arc(int a, int b, double x, double y) {
+            this.a = a;
+            this.b = b;
+            this.x = x;
+            this.y = y;
+        }
+
+        public boolean is(int p, int q) {
+            return (a == p && b == q) || (a == q && b == p);
+        }
+    }
+
     public final List<Loop> loops = new ArrayList<>();
+    public final List<Region> regions = new ArrayList<>();
+    public final List<double[]> blockVertices = new ArrayList<>();
+    public final List<Block> blocks = new ArrayList<>();
+    public final List<Arc> arcs = new ArrayList<>();
 
     // meshing parameters (stored together with the geometry)
     public double meshSize = 0.1;
     public double minAngle = 25; // degrees
     public double grading = 0.3; // growth of the local mesh size with the distance from a refined segment
     public int smoothingIterations = 5;
+    public int refinementLevels = 0; // every level halves the size of the elements
+    public boolean blockTriangles = false; // blocks are divided into triangles instead of quadrilaterals
+
+    public boolean isEmpty() {
+        return loops.isEmpty() && blocks.isEmpty();
+    }
+
+    public boolean hasBlocks() {
+        return !blocks.isEmpty();
+    }
+
+    public Arc arc(int a, int b) {
+        for (Arc arc : arcs) {
+            if (arc.is(a, b)) {
+                return arc;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Point of the edge between block vertices a and b (straight or arc) at
+     * the parameter s in [0, 1] (proportional to the length).
+     */
+    public double[] edgePoint(int a, int b, double s) {
+        double[] p = blockVertices.get(a), q = blockVertices.get(b);
+        Arc arc = arc(a, b);
+        if (arc != null) {
+            double[] c = circumcentre(p, q, new double[]{arc.x, arc.y});
+            if (c != null) {
+                double r = Math.hypot(p[0] - c[0], p[1] - c[1]);
+                double phiP = Math.atan2(p[1] - c[1], p[0] - c[0]);
+                double phiQ = Math.atan2(q[1] - c[1], q[0] - c[0]);
+                double phiM = Math.atan2(arc.y - c[1], arc.x - c[0]);
+                // the sweep from p to q passing through the point of the arc
+                double sweep = normalise(phiQ - phiP);
+                if (normalise(phiM - phiP) > sweep) {
+                    sweep -= 2 * Math.PI;
+                }
+                double phi = phiP + s * sweep;
+                return new double[]{c[0] + r * Math.cos(phi), c[1] + r * Math.sin(phi)};
+            }
+        }
+        return new double[]{p[0] + s * (q[0] - p[0]), p[1] + s * (q[1] - p[1])};
+    }
+
+    /**
+     * angle in [0, 2 pi)
+     */
+    private static double normalise(double phi) {
+        double t = phi % (2 * Math.PI);
+        return t < 0 ? t + 2 * Math.PI : t;
+    }
+
+    private static double[] circumcentre(double[] a, double[] b, double[] c) {
+        double bx = b[0] - a[0], by = b[1] - a[1];
+        double cx = c[0] - a[0], cy = c[1] - a[1];
+        double d = 2 * (bx * cy - by * cx);
+        if (Math.abs(d) < 1e-12 * (bx * bx + by * by + cx * cx + cy * cy)) {
+            return null; // collinear points, straight edge
+        }
+        double b2 = bx * bx + by * by, c2 = cx * cx + cy * cy;
+        return new double[]{a[0] + (cy * b2 - by * c2) / d, a[1] + (bx * c2 - cx * b2) / d};
+    }
+
+    /**
+     * Blocks sharing the edge (a, b), as pairs {block, face}.
+     */
+    public List<int[]> blocksAt(int a, int b) {
+        List<int[]> result = new ArrayList<>();
+        for (int i = 0; i < blocks.size(); i++) {
+            Block block = blocks.get(i);
+            for (int k = 0; k < 4; k++) {
+                int p = block.v[k], q = block.v[(k + 1) % 4];
+                if ((p == a && q == b) || (p == b && q == a)) {
+                    result.add(new int[]{i, k});
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Sets the number of cells and the grading of face 'face' of a block and
+     * copies them to all the faces which must have the same division (the
+     * opposite face of the block and the faces of the neighbouring blocks,
+     * transitively). The grading is not changed if g is NaN.
+     */
+    public void setDivision(int blockIndex, int face, int n, double g) {
+        boolean[][] done = new boolean[blocks.size()][2];
+        ArrayDeque<int[]> queue = new ArrayDeque<>();
+        queue.add(new int[]{blockIndex, face});
+        // grading of face k of block b in the direction of its vertex k -> k+1
+        double[] gradingOf = new double[blocks.size() * 4];
+        gradingOf[blockIndex * 4 + face] = g;
+        while (!queue.isEmpty()) {
+            int[] item = queue.poll();
+            Block block = blocks.get(item[0]);
+            int k = item[1];
+            if (done[item[0]][k % 2]) {
+                continue;
+            }
+            done[item[0]][k % 2] = true;
+            double gk = gradingOf[item[0] * 4 + k];
+            block.setCells(k, n);
+            if (!Double.isNaN(gk)) {
+                block.setGrading(k, gk);
+            }
+            for (int f : new int[]{k % 2, k % 2 + 2}) {
+                double gf = Double.isNaN(gk) ? Double.NaN : block.grading(f);
+                int a = block.v[f], b = block.v[(f + 1) % 4];
+                for (int[] other : blocksAt(a, b)) {
+                    if (other[0] == item[0] || done[other[0]][other[1] % 2]) {
+                        continue;
+                    }
+                    Block ob = blocks.get(other[0]);
+                    boolean same = ob.v[other[1]] == a;
+                    gradingOf[other[0] * 4 + other[1]] = Double.isNaN(gf) ? Double.NaN : (same ? gf : 1 / gf);
+                    queue.add(other);
+                }
+            }
+        }
+    }
+
+    /**
+     * Removes the block vertices which are not used by any block and the arcs
+     * of edges which do not exist any more.
+     */
+    public void removeUnusedBlockVertices() {
+        int[] map = new int[blockVertices.size()];
+        Arrays.fill(map, -1);
+        for (Block block : blocks) {
+            for (int v : block.v) {
+                map[v] = 0;
+            }
+        }
+        List<double[]> kept = new ArrayList<>();
+        for (int i = 0; i < map.length; i++) {
+            if (map[i] >= 0) {
+                map[i] = kept.size();
+                kept.add(blockVertices.get(i));
+            }
+        }
+        blockVertices.clear();
+        blockVertices.addAll(kept);
+        for (Block block : blocks) {
+            for (int k = 0; k < 4; k++) {
+                block.v[k] = map[block.v[k]];
+            }
+        }
+        List<Arc> keptArcs = new ArrayList<>();
+        for (Arc arc : arcs) {
+            if (map[arc.a] >= 0 && map[arc.b] >= 0) {
+                arc.a = map[arc.a];
+                arc.b = map[arc.b];
+                if (!blocksAt(arc.a, arc.b).isEmpty()) {
+                    keptArcs.add(arc);
+                }
+            }
+        }
+        arcs.clear();
+        arcs.addAll(keptArcs);
+    }
 
     public Loop outerLoop() {
         Loop outer = null;
@@ -142,13 +436,19 @@ public class Geometry {
 
     public double[] boundingBox() {
         double[] bb = {Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, Double.NEGATIVE_INFINITY};
+        List<double[]> points = new ArrayList<>();
         for (Loop loop : loops) {
-            for (double[] p : loop.points) {
-                bb[0] = Math.min(bb[0], p[0]);
-                bb[1] = Math.min(bb[1], p[1]);
-                bb[2] = Math.max(bb[2], p[0]);
-                bb[3] = Math.max(bb[3], p[1]);
-            }
+            points.addAll(loop.points);
+        }
+        points.addAll(blockVertices);
+        for (Arc arc : arcs) {
+            points.add(new double[]{arc.x, arc.y});
+        }
+        for (double[] p : points) {
+            bb[0] = Math.min(bb[0], p[0]);
+            bb[1] = Math.min(bb[1], p[1]);
+            bb[2] = Math.max(bb[2], p[0]);
+            bb[3] = Math.max(bb[3], p[1]);
         }
         return bb;
     }
@@ -158,8 +458,11 @@ public class Geometry {
      * be meshed
      */
     public String validate() {
+        if (hasBlocks()) {
+            return validateBlocks();
+        }
         if (loops.isEmpty()) {
-            return "the geometry is empty, draw the outer boundary first";
+            return "the geometry is empty, draw the outer boundary (or blocks) first";
         }
         for (int l = 0; l < loops.size(); l++) {
             Loop loop = loops.get(l);
@@ -186,6 +489,47 @@ public class Geometry {
                 }
                 if (properIntersection(s[0], s[1], t[0], t[1])) {
                     return String.format(Locale.ROOT, "segments intersect near [%.4g, %.4g]", s[0][0], s[0][1]);
+                }
+            }
+        }
+        if (meshSize <= 0) {
+            return "the mesh size must be positive";
+        }
+        return null;
+    }
+
+    private String validateBlocks() {
+        for (int i = 0; i < blocks.size(); i++) {
+            Block block = blocks.get(i);
+            for (int k = 0; k < 4; k++) {
+                for (int m = k + 1; m < 4; m++) {
+                    if (block.v[k] == block.v[m]) {
+                        return "block " + (i + 1) + " has a repeated vertex";
+                    }
+                }
+            }
+            if (block.nx < 1 || block.ny < 1) {
+                return "block " + (i + 1) + " must have at least one cell in each direction";
+            }
+            if (!(block.gx > 0) || !(block.gy > 0)) {
+                return "the grading of block " + (i + 1) + " must be positive";
+            }
+            for (int k = 0; k < 4; k++) {
+                if (orient(blockVertices.get(block.v[(k + 3) % 4]), blockVertices.get(block.v[k]),
+                        blockVertices.get(block.v[(k + 1) % 4])) <= 0) {
+                    return "block " + (i + 1) + " is not convex (or its vertices are not counter-clockwise)";
+                }
+            }
+            for (int k = 0; k < 4; k++) {
+                List<int[]> shared = blocksAt(block.v[k], block.v[(k + 1) % 4]);
+                if (shared.size() > 2) {
+                    return "face " + (k + 1) + " of block " + (i + 1) + " is shared by more than two blocks";
+                }
+                for (int[] other : shared) {
+                    if (other[0] != i && blocks.get(other[0]).cells(other[1]) != block.cells(k)) {
+                        return "blocks " + (i + 1) + " and " + (other[0] + 1) + " have a different number of cells "
+                                + "on their common face (set the division of one of them again)";
+                    }
                 }
             }
         }
@@ -293,6 +637,32 @@ public class Geometry {
             w.write(String.format(Locale.ROOT, "minAngle %s%n", minAngle));
             w.write(String.format(Locale.ROOT, "grading %s%n", grading));
             w.write(String.format(Locale.ROOT, "smoothing %d%n", smoothingIterations));
+            w.write(String.format(Locale.ROOT, "refinement %d%n", refinementLevels));
+            w.write(String.format(Locale.ROOT, "blockTriangles %d%n", blockTriangles ? 1 : 0));
+            for (Region reg : regions) {
+                if (reg.circle) {
+                    w.write(String.format(Locale.ROOT, "region circle %.17g %.17g %.17g %s%n", reg.x0, reg.y0, reg.r, reg.h));
+                } else {
+                    w.write(String.format(Locale.ROOT, "region box %.17g %.17g %.17g %.17g %s%n",
+                            reg.x0, reg.y0, reg.x1, reg.y1, reg.h));
+                }
+            }
+            if (!blocks.isEmpty()) {
+                w.write("# block v0 v1 v2 v3 (vertex indices from 0, counter-clockwise) nx ny gradingX gradingY "
+                        + "boundary types of faces 0-3, ALE tags of faces 0-3\n");
+            }
+            for (double[] p : blockVertices) {
+                w.write(String.format(Locale.ROOT, "vertex %.17g %.17g%n", p[0], p[1]));
+            }
+            for (Block b : blocks) {
+                w.write(String.format(Locale.ROOT, "block %d %d %d %d %d %d %s %s %d %d %d %d %d %d %d %d%n",
+                        b.v[0], b.v[1], b.v[2], b.v[3], b.nx, b.ny, b.gx, b.gy,
+                        b.types[0], b.types[1], b.types[2], b.types[3],
+                        b.aleTags[0], b.aleTags[1], b.aleTags[2], b.aleTags[3]));
+            }
+            for (Arc arc : arcs) {
+                w.write(String.format(Locale.ROOT, "arc %d %d %.17g %.17g%n", arc.a, arc.b, arc.x, arc.y));
+            }
             for (Loop loop : loops) {
                 w.write("loop\n");
                 for (int i = 0; i < loop.size(); i++) {
@@ -331,6 +701,47 @@ public class Geometry {
                             break;
                         case "smoothing":
                             geo.smoothingIterations = Integer.parseInt(t[1]);
+                            break;
+                        case "refinement":
+                            geo.refinementLevels = Integer.parseInt(t[1]);
+                            break;
+                        case "blockTriangles":
+                            geo.blockTriangles = !t[1].equals("0");
+                            break;
+                        case "region":
+                            if (t[1].equals("circle")) {
+                                geo.regions.add(Region.circle(Double.parseDouble(t[2]), Double.parseDouble(t[3]),
+                                        Double.parseDouble(t[4]), Double.parseDouble(t[5])));
+                            } else {
+                                geo.regions.add(Region.box(Double.parseDouble(t[2]), Double.parseDouble(t[3]),
+                                        Double.parseDouble(t[4]), Double.parseDouble(t[5]), Double.parseDouble(t[6])));
+                            }
+                            break;
+                        case "vertex":
+                            geo.blockVertices.add(new double[]{Double.parseDouble(t[1]), Double.parseDouble(t[2])});
+                            break;
+                        case "block": {
+                            Block b = new Block();
+                            for (int k = 0; k < 4; k++) {
+                                b.v[k] = Integer.parseInt(t[1 + k]);
+                                if (b.v[k] < 0 || b.v[k] >= geo.blockVertices.size()) {
+                                    throw new IOException("block vertex " + b.v[k] + " is not defined");
+                                }
+                            }
+                            b.nx = Integer.parseInt(t[5]);
+                            b.ny = Integer.parseInt(t[6]);
+                            b.gx = t.length > 7 ? Double.parseDouble(t[7]) : 1;
+                            b.gy = t.length > 8 ? Double.parseDouble(t[8]) : 1;
+                            for (int k = 0; k < 4; k++) {
+                                b.types[k] = t.length > 9 + k ? Integer.parseInt(t[9 + k]) : WALL;
+                                b.aleTags[k] = t.length > 13 + k ? Integer.parseInt(t[13 + k]) : 0;
+                            }
+                            geo.blocks.add(b);
+                            break;
+                        }
+                        case "arc":
+                            geo.arcs.add(new Arc(Integer.parseInt(t[1]), Integer.parseInt(t[2]),
+                                    Double.parseDouble(t[3]), Double.parseDouble(t[4])));
                             break;
                         case "loop":
                             loop = new Loop();
