@@ -17,7 +17,7 @@ pOut = 0.97250     % M_inf = 0.2: pIn0/pOut = (1 + 0.2*M^2)^3.5
 
 continueComputation = false
 steps = 1000   % length of the run (t = steps * dt)
-tEnd = 400.2   % half a step more than steps * dt
+tEnd = 400     % = steps * dt
 saveRate = 100
 
 spatialMethod = DGpure

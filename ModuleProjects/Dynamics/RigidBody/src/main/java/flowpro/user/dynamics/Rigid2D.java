@@ -3,7 +3,6 @@ package flowpro.user.dynamics;
 import flowpro.user.auxiliary.ScriptEvaluator;
 import flowpro.api.*;
 import java.io.BufferedWriter;
-import java.io.FileInputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -26,6 +25,9 @@ public class Rigid2D implements Dynamics {
     public double t;
     public double zLength;
     public double tKick;
+
+    private static final String STATE_FILE_NAME = "bodiesState.txt";
+    private double tRestart = Double.NaN; // time of the state loaded on a continuation
 
     // dynamic
     boolean dynamicComputation = false;
@@ -56,8 +58,9 @@ public class Rigid2D implements Dynamics {
 
         // clear file for results
         FlowProProperties props = new FlowProProperties();
-        props.load(new FileInputStream(simulationPath + "parameters.txt"));
-        if (props.containsKey("continueComputation")) {
+        props.load(simulationPath + "parameters.txt"); // with the -p overrides of the command line
+        boolean continuation = props.containsKey("continueComputation") && props.getBoolean("continueComputation");
+        if (!continuation) {
             try {
                 PrintWriter writer = new PrintWriter(simulationPath + "bodiesDynamic.txt");
                 writer.print("");
@@ -228,6 +231,47 @@ public class Rigid2D implements Dynamics {
                 bodies[i].setAlphaTimeForce(alphaTimeForce[i]);
             }
         }
+
+        if (continuation) {
+            loadState();
+        }
+    }
+
+    /**
+     * State of the bodies after the last time step (positions, velocities and the history of the
+     * multistep methods), the computation continues from it (continueComputation = true).
+     */
+    private void saveState() throws IOException {
+        try (PrintWriter out = new PrintWriter(new BufferedWriter(new FileWriter(simulationPath + STATE_FILE_NAME)))) {
+            out.println((t + dt) + " " + dtOld);
+            for (Body body : bodies) {
+                for (double[] v : body.history()) {
+                    StringBuilder line = new StringBuilder();
+                    for (double x : v) {
+                        line.append(x).append(' ');
+                    }
+                    out.println(line.toString().trim());
+                }
+            }
+        }
+    }
+
+    private void loadState() throws IOException {
+        java.io.File file = new java.io.File(simulationPath + STATE_FILE_NAME);
+        if (!file.exists()) {
+            System.out.println("WARNING! " + STATE_FILE_NAME + " not found, the bodies start at rest in the initial position!");
+            return;
+        }
+        double[][] data = Mat.loadDoubleMatrix(file.getPath());
+        tRestart = data[0][0];
+        dtOld = data[0][1];
+        int row = 1;
+        for (Body body : bodies) {
+            for (double[] v : body.history()) {
+                System.arraycopy(data[row++], 0, v, 0, v.length);
+            }
+        }
+        System.out.println("state of the bodies loaded from " + STATE_FILE_NAME + " (t = " + tRestart + ")");
     }
 
     @Override
@@ -235,8 +279,14 @@ public class Rigid2D implements Dynamics {
         this.fluFor = fluFor;
         this.t = t;
         this.dt = dt;
-        if (t < 1e-12) {
+        if (t < 1e-12 || dtOld <= 0) { // first step (dtOld = 0 on a continuation without the saved state)
             this.dtOld = dt;
+        }
+        if (!Double.isNaN(tRestart)) {
+            if (Math.abs(t - tRestart) > 1e-6 * dt) {
+                System.out.println("WARNING! state of the bodies is from t = " + tRestart + ", the computation continues from t = " + t);
+            }
+            tRestart = Double.NaN;
         }
         double a1 = 1 + dt / dtOld / 2;
         double a2 = -dt / dtOld / 2;
@@ -245,7 +295,7 @@ public class Rigid2D implements Dynamics {
             if (dynamicComputation) {
                 for (int i = 0; i < nBodies; i++) {
                     double[] F = new double[]{zLength * fluFor[i].force[0],
-                        zLength * fluFor[i].force[1], zLength * fluFor[i].force[0]};
+                        zLength * fluFor[i].force[1], zLength * fluFor[i].torque[0]};
 
                     if (innerIter == 0) {
                         System.arraycopy(F, 0, bodies[i].Fn, 0, bodies[i].Fnew.length);
@@ -362,12 +412,12 @@ public class Rigid2D implements Dynamics {
 //				double b3 = dt / (dtOld * (dt + dtOld));  // 1/(2*dt);
 
                 for (int i = 0; i < nBodies; i++) {
-                    System.arraycopy(bodies[i].Xnew, 0, bodies[i].X, 0, 3);
-
+                    // X must stay the position at t: it is called in every Newton iteration and overwriting
+                    // X made the velocity grow exponentially (U = (Xnew - X)/dt - U for each iteration)
                     bodies[i].setActualKinematicCoordinates(t + dt);
 
                     for (int j = 0; j < bodies[i].X.length; j++) {
-                        if (bodies[i].freedom[j]) {
+                        if (bodies[i].freedom[j] && bodies[i].hasMotion(j)) {
                             /* Rychlost telesa pri nakopnuti se pocitaji jen s prvnim radem. Rychlost se pouzije jen
 							   v prvni casovem kroku po zapnuti interakce, tak to moc nevadi. */
                             bodies[i].Unew[j] = (bodies[i].Xnew[j] - bodies[i].X[j]) / dt;
@@ -415,7 +465,7 @@ public class Rigid2D implements Dynamics {
     }
 
     @Override
-    public void savePositionsAndForces() {
+    public void savePositionsAndForces() throws IOException {
         try (FileWriter fw = new FileWriter(simulationPath + "bodiesDynamic.txt", true);
                 BufferedWriter bw = new BufferedWriter(fw);
                 PrintWriter out = new PrintWriter(bw)) {
@@ -434,6 +484,7 @@ public class Rigid2D implements Dynamics {
             //exception handling left as an exercise for the reader
 
         }
+        saveState();
     }
 
     public class Body {
@@ -505,6 +556,14 @@ public class Rigid2D implements Dynamics {
             if (alphaMotion != null) {
                 Xnew[2] = jsEval.eval(alphaMotion, t);
             }
+        }
+
+        double[][] history() { // arrays saved for a continuation (state after nextTimeLevel)
+            return new double[][]{X, U, Xnew, Unew, Xold, Uold, RHS, RHSold, Fn, Fold};
+        }
+
+        boolean hasMotion(int j) { // kinematic script for the coordinate j (x, y, alpha)
+            return (j == 0 ? xMotion : j == 1 ? yMotion : alphaMotion) != null;
         }
 
         public double[] timeDependentForces(double t) throws ScriptException { // time dependent external forces

@@ -46,7 +46,7 @@ public class Elastic3DBeam implements Dynamics {
 
         // clear file for results
         FlowProProperties props = new FlowProProperties();
-        props.load(new FileInputStream(simulationPath + "parameters.txt"));
+        props.load(simulationPath + "parameters.txt"); // with the -p overrides of the command line
 
         // try to read body centers
         try {

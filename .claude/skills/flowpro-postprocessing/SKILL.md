@@ -25,11 +25,11 @@ java -jar FlowPro.jar list | params | help
 * Řízené zastavení: vytvoř soubor `simulations/GEOM/SIM/STOP` → dokončí krok, uloží, skončí.
   Pokračování: `continueComputation = true` (nebo `-p continueComputation=true`); `steps` je počet kroků dalšího
   běhu, `tEnd` absolutní čas. Před novým výpočtem od začátku smaž `W.txt We.txt state.txt residuum.txt`.
-  **`bodiesDynamic.txt` se vymaže při každém startu výpočtu, i při pokračování** – před pokračováním ho
-  zkopíruj (např. `bodiesDynamic_part1.txt`) a části pak spoj.
-* **Pevný `dt` a `tEnd`**: čas se sčítá se zaokrouhlením (1200 × 0,1 = 119,99999999999746 < 120), poslední krok
-  se pak ořízne na dt ≈ 1e−12 – v BDF2 s takovým poměrem kroků vznikne nesmyslný stav (u nestlačitelného modelu
-  tlak ~1e4, který se uloží jako konečný). Délku běhu řiď `steps` a `tEnd` dej o půl kroku větší.
+  `bodiesDynamic.txt` se vymaže jen při novém výpočtu (`continueComputation = false`), při pokračování se
+  připisuje (první záznam pokračování může opakovat čas – `forces.py` bere poslední záznam daného času).
+* **Pevný `dt` a `tEnd`**: výpočet skončí v `tEnd`; zbytek času menší než 1e−6·dt (zaokrouhlení součtu kroků,
+  1200 × 0,1 = 119,99999999999746) se jako další krok nepočítá, `tEnd = steps · dt` je tedy v pořádku.
+  Pokud `tEnd` není násobkem `dt`, poslední krok se zkrátí (BDF2 s proměnným krokem).
 * Více výpočtů najednou: součet `threads` ≤ počet jader.
 
 ## Výstupy výpočtu (`simulations/GEOM/SIM/`)
@@ -49,10 +49,8 @@ java -jar FlowPro.jar postprocessing vorticity -ftxt -d2 -i00000400 -g GEOM -s S
   a `W0, W1, …` (složky řešení).
 * `-dN` = hodnoty v bodech elementů dělených na N dílů na hranu (polynom DG, vhodné pro p ≥ 1);
   bez `-d` průměry do vrcholů. `-iITER` = snímek z `animation/`, `-oDIR` = výstupní podadresář.
-* **Pohyblivá síť**: bez `-i` umístí `postprocessing` (i GUI) konečné řešení na **nedeformovanou** síť
-  `mesh/vertices.txt` – obraz je zkreslený (pootočený válec → „stočený“ úplav). Deformovaná síť je v `SIM/PXY.txt`.
-  Buď použij snímky animace (`animation = true`, `-iITER` načte `animation/vertices########.txt`), nebo export
-  `-ftxt -d1` (či bez `-d`) přemapuj: `python scripts/remap_deformed.py SIM/OUTDIR SIM GEOM/mesh`.
+* **Pohyblivá síť**: konečné řešení (bez `-i`) se kreslí na deformované síti `SIM/PXY.txt` (ukládá se spolu
+  s `We.txt`), snímek animace `-iITER` na `animation/vertices########.txt`. Bez `PXY.txt` se použije `mesh/vertices.txt`.
 * `python scripts/sample.py OUTDIR q1 q2 --line X0 Y0 X1 Y1 N --csv line.csv` – hodnoty podél přímky
   (`velocity` → `xvelocity`, `yvelocity`); `--points X Y X Y …` – sondy.
 

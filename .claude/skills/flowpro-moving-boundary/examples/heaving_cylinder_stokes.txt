@@ -17,7 +17,7 @@ pOut = 1                % pOut = pIn0: fluid at rest
 
 continueComputation = false
 steps = 320   % 5 periods (t = steps * dt)
-tEnd = 314.65   % half a step more than steps * dt
+tEnd = 314.1592653589793   % = steps * dt, 5 periods
 saveRate = 100
 
 spatialMethod = DGpure

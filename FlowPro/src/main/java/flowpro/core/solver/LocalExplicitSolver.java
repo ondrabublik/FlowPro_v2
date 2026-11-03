@@ -140,6 +140,10 @@ public class LocalExplicitSolver extends MasterSolver {
             // the fixed time step was ignored by the explicit solver
             state.updateCFL();
             double dt = state.getTimeStep(elems);
+            // tEnd reached up to the round-off of the summed time (1200 * 0.1 < 120)
+            if (par.tEnd - state.t <= 1e-6 * dt) {
+                break;
+            }
             if (state.t + dt > par.tEnd) {
                 dt = par.tEnd - state.t;
             }

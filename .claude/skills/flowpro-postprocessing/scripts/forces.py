@@ -70,8 +70,8 @@ def main():
     _, last = np.unique(t[::-1], return_index=True)
     keep = np.sort(len(t) - 1 - last)
     t, x, y, alpha, fx, fy, m = (v[keep] for v in (t, x, y, alpha, fx, fy, m))
-    # the last step cut by tEnd (t accumulated slightly below tEnd = N dt) has dt ~ 1e-12 and nonsense
-    # forces; its record has a normal time (start of the step), so it is recognised as an outlier
+    # older FlowPro versions computed a last step cut by tEnd to dt ~ 1e-12 (t summed slightly below
+    # tEnd = N dt) with nonsense forces; its record has a normal time, so it is recognised as an outlier
     if len(t) > 10:
         rest = np.hypot(fx[:-1], fy[:-1])
         spread = np.ptp(rest[len(rest) // 2:]) + 1e-12 * np.abs(rest).max()

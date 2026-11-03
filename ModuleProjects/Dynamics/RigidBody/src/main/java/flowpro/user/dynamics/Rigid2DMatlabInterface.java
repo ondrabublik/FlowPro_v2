@@ -4,7 +4,6 @@ import flowpro.api.*;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedWriter;
-import java.io.FileInputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.ObjectInputStream;
@@ -61,8 +60,8 @@ public class Rigid2DMatlabInterface implements Dynamics {
 
         // clear file for results
         FlowProProperties props = new FlowProProperties();
-        props.load(new FileInputStream(simulationPath + "parameters.txt"));
-        if (props.containsKey("continueComputation")) {
+        props.load(simulationPath + "parameters.txt"); // with the -p overrides of the command line
+        if (!props.containsKey("continueComputation") || !props.getBoolean("continueComputation")) { // new computation
             try {
                 PrintWriter writer = new PrintWriter(simulationPath + "bodiesDynamic.txt");
                 writer.print("");

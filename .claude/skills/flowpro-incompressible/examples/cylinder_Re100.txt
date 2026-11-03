@@ -12,7 +12,7 @@ lRef = 1
 
 continueComputation = false
 steps = 1200   % length of the run (t = steps * dt)
-tEnd = 120.05   % half a step more than steps * dt (a step cut by tEnd to ~1e-12 spoils the pressure)
+tEnd = 120      % = steps * dt
 saveRate = 200
 
 spatialMethod = DGpureIncompressible

@@ -151,6 +151,11 @@ public class LocalImplicitSolver extends MasterSolver {
 
 			// nastaveni dt
 			double dt = state.getTimeStep(elems);
+			// tEnd reached up to the round-off of the summed time (1200 * 0.1 < 120), the remaining
+			// step dt ~ 1e-12 would spoil the BDF solution
+			if (par.tEnd - state.t <= 1e-6 * dt) {
+				break;
+			}
 			if (state.t + dt > par.tEnd) {
 				dt = par.tEnd - state.t;
 			}

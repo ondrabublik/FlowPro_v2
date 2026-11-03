@@ -3,7 +3,6 @@ package flowpro.user.dynamics;
 import flowpro.user.auxiliary.ScriptEvaluator;
 import flowpro.api.*;
 import java.io.BufferedWriter;
-import java.io.FileInputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -63,8 +62,8 @@ public class Rigid2DLocalStep implements Dynamics {
 
         // clear file for results
         FlowProProperties props = new FlowProProperties();
-        props.load(new FileInputStream(simulationPath + "parameters.txt"));
-        if (props.containsKey("continueComputation")) {
+        props.load(simulationPath + "parameters.txt"); // with the -p overrides of the command line
+        if (!props.containsKey("continueComputation") || !props.getBoolean("continueComputation")) { // new computation
             try {
                 PrintWriter writer = new PrintWriter(simulationPath + "bodiesDynamic.txt");
                 writer.print("");
@@ -264,7 +263,7 @@ public class Rigid2DLocalStep implements Dynamics {
             if (dynamicComputation) {
                 for (int i = 0; i < nBodies; i++) {
                     double[] F = new double[]{zLength * fluFor[i].force[0],
-                        zLength * fluFor[i].force[1], zLength * fluFor[i].force[0]};
+                        zLength * fluFor[i].force[1], zLength * fluFor[i].torque[0]};
 
                     if (innerIter == 0) {
                         System.arraycopy(F, 0, bodies[i].Fn, 0, bodies[i].Fnew.length);
@@ -321,11 +320,12 @@ public class Rigid2DLocalStep implements Dynamics {
             // kinematic forced body
             if (t * tRef < tKick) {
                 for (int i = 0; i < nBodies; i++) {
-                    System.arraycopy(bodies[i].Xnew, 0, bodies[i].X, 0, 3);
+                    // X must stay the position at t: it is called in every Newton iteration and overwriting
+                    // X made the velocity grow exponentially (U = (Xnew - X)/dt - U for each iteration)
                     bodies[i].setActualKinematicCoordinates(t + dt);
 
                     for (int j = 0; j < bodies[i].X.length; j++) {
-                        if (bodies[i].freedom[j]) {
+                        if (bodies[i].freedom[j] && bodies[i].hasMotion(j)) {
                             /* Rychlost telesa pri nakopnuti se pocitaji jen s prvnim radem. Rychlost se pouzije jen
 							   v prvni casovem kroku po zapnuti interakce, tak to moc nevadi. */
                             bodies[i].Unew[j] = (bodies[i].Xnew[j] - bodies[i].X[j]) / dt;
@@ -459,6 +459,10 @@ public class Rigid2DLocalStep implements Dynamics {
             if (alphaMotion != null) {
                 Xnew[2] = jsEval.eval(alphaMotion, t);
             }
+        }
+
+        boolean hasMotion(int j) { // kinematic script for the coordinate j (x, y, alpha)
+            return (j == 0 ? xMotion : j == 1 ? yMotion : alphaMotion) != null;
         }
 
         public double[] timeDependentForces(double t) throws ScriptException { // time dependent external forces

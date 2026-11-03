@@ -48,8 +48,7 @@ Výrazy pohybu (JavaScript, proměnná `t`):
 * **Hladký rozjezd**: pohyb náhle rozjetého tělesa (skok rychlosti stěny) zhroutí výpočet ve 2. kroku (záporný tlak,
   nulový pivot ILU). Amplitudu náběhovat během první periody smoothstepem:
   `A*(t < T ? (t/T)*(t/T)*(3 - 2*t/T) : 1)*Math.sin(w*t)` (při startu z času t0 nahradit t → (t − t0)).
-* `Rigid2D` čte `parameters.txt` přímo ze souboru – **přepisy `-p` z příkazové řádky se na parametry dynamiky
-  (`xMotion`, `M`, `tKick`, …) neuplatní**, uprav soubor.
+* Přepisy `-p` z příkazové řádky platí i pro parametry dynamiky (`xMotion`, `M`, `tKick`, …).
 
 ## Volný pohyb (interakce s tělesem)
 
@@ -66,17 +65,20 @@ zLength = 1                         % hloubka tělesa (síly × zLength)
 %yExternForceInTime = …             % vnější síla jako funkce času
 ```
 Bez `M`, `B`, `K` (hláška „Mass, stifness or damping matrix not defined!“) je pohyb čistě kinematický.
-**Pozor – chyba v `Rigid2D.computeBodyMove`: pohybová rovnice natočení dostává sílu Fx místo momentu**
-(`F = {Fx, Fy, Fx}`), volná rotace (`alphaFreedom = true`) tedy dává nesprávné výsledky; volný posuv x, y je v pořádku.
+* Pohybové rovnice dostávají Fx, Fy a moment M k aktuálnímu středu rotace (`rotationCenters` + posunutí).
+* Předepsaný pohyb do `tKick` dávej hladký, s nulovou rychlostí v `tKick` (rychlost při přechodu na volný pohyb
+  je jen první diferencí polohy); souřadnice bez výrazu pohybu se počítají dynamicky i před `tKick`.
+* Pokračování (`continueComputation = true`) načte stav těles (poloha, rychlost, historie metody) z
+  `bodiesState.txt`, který `Rigid2D` přepisuje po každém kroku – pokračovat z výsledků uložených po `saveRate`
+  krocích po násilném přerušení proto nejde (stav těles je novější; vypíše se varování), zastavuj souborem `STOP`.
 
 ## Výstupy
 
 `bodiesDynamic.txt`: `t` + pro každé těleso `x y α Fx Fy M`. Poloha patří času `t + dt`, síla předposlední
-Newtonově iteraci (detaily a skript `forces.py`: skill `flowpro-postprocessing`). Soubor se při každém startu
-(i pokračování) vymaže – zálohovat. `animation = true` ukládá i deformovanou síť
-(`animation/vertices########.txt`), `postprocessing -iITER` ji použije. **Konečný stav (`postprocessing` bez `-i`,
-GUI) se kreslí na nedeformované síti** – deformovaná je v `PXY.txt`, přemapování
-`flowpro-postprocessing/scripts/remap_deformed.py`.
+Newtonově iteraci (detaily a skript `forces.py`: skill `flowpro-postprocessing`). Soubor se vymaže při novém
+výpočtu, při pokračování (`continueComputation = true`) se připisuje. Konečná deformovaná síť je v `PXY.txt`
+(rychlost sítě `UXY.txt`) a `postprocessing` na ní konečné řešení kreslí; `animation = true` ukládá i síť snímků
+(`animation/vertices########.txt`, `postprocessing -iITER`).
 
 ## Ověření – válec kmitající v klidné tekutině (Stokes 1851)
 
@@ -107,3 +109,24 @@ Výsledek (ověřeno, periody 3–5, 37 min, 16 vláken, žádné selhání ře�
 vnější hranice s pevným tlakem odráží akustické vlny a kR₂ = ωR₂/c = 4,2 už není malé (stojaté vlny mezi válcem
 a hranicí, přesná korekce −9 %, zbytek nevytlumené vlny z rozběhu). Pro „nestlačitelné“ děje stlačitelným modelem
 drž ωR₂/c ≲ 1 (nižší frekvence nebo menší oblast) a ověř korekci skriptem (`--Rout`, `--c`).
+
+## Ověření – volný pohyb: válec na torzní pružině v klidné tekutině
+
+Síť jako výše, `NavierStokes` v klidu s ν = 0,01, I = 0,2, K = 0,05 (ω₀ = 0,5), do `tKick = 5` hladké natočení
+na α = 0,1 s nulovou rychlostí, pak volné tlumené kmity; p = 1, BDF2, dt = 0,2, 300 kroků (4 min, 16 vláken).
+Přesně: vlastní číslo s rovnice I s² + B s + K + Z(s) s = 0 s vazkým momentem rotujícího válce
+Z(s) = 2πμR²(2 + z K₀(z)/K₁(z)), z = R√(s/ν). Parametry: `examples/rotating_cylinder_free.txt`.
+
+```
+java -jar FlowPro.jar run -g skills/heave -s rotfull > simulations/skills/heave/rotfull.log 2>&1
+python <tento skill>/scripts/rotation_cylinder.py simulations/skills/heave/rotfull/bodiesDynamic.txt --I 0.2 --K 0.05 --nu 0.01 --tKick 5
+```
+
+| | přesně | FlowPro | odchylka |
+|---|---|---|---|
+| útlum Re s | −0,1103 | −0,1115 | 1,1 % |
+| frekvence Im s | 0,3937 | 0,4022 | 2,2 % |
+| reziduum I α'' + K α − M (diference ze záznamu) | 0 | 2 % max K α | – |
+
+Výpočet rozdělený na dvě části (150 kroků, pak `-p continueComputation=true -p tEnd=60`) se od nepřerušeného
+liší o 8e−5 v úhlu a 1 % v momentu.

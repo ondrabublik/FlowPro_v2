@@ -148,6 +148,9 @@ public class ResultsPlot {
         try {
             if (iter != -1 && movingMesh) {
                 PXY = Mat.loadDoubleMatrix(simulationPath + "animation/vertices" + String.format("%08d", iter) + ".txt"); // mesh vertices coordinates
+            } else if (movingMesh && new File(simulationPath + "PXY.txt").exists()) {
+                // deformed mesh saved together with the final solution We.txt
+                PXY = Mat.loadDoubleMatrix(simulationPath + "PXY.txt");
             } else {
                 PXY = Mat.loadDoubleMatrix(meshPath + "vertices.txt"); // mesh vertices coordinates
             }

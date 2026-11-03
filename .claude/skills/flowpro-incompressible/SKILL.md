@@ -36,7 +36,7 @@ lRef = 1              % referenční délka = průměr / tětiva / výška kaná
 
 continueComputation = false
 steps = 1200          % délka běhu = steps * dt
-tEnd = 120.05         % o půl kroku víc než steps * dt (viz níže)
+tEnd = 120            % = steps * dt
 saveRate = 200
 %animation = true     % snímky pro vizualizaci (velké soubory)
 
@@ -106,8 +106,6 @@ nasycené periodické odtrhávání od t ≈ 40.
 Mírně vyšší St a c_D odpovídají zablokování kanálu D/H = 6 % (klouzavé boční stěny). Na rozdíl od stlačitelného
 modelu (`flowpro-navier-stokes`) je rychlost před tělesem přesně `VIn` (rychlostní vstup).
 
-**Konec výpočtu přes `tEnd`**: čas se sčítá s chybou zaokrouhlení (1200 × 0,1 = 119,99999999999746), takže
-po posledním „celém“ kroku proběhne ještě krok s dt ≈ 1e−12. U `BDFIncompressible` (BDF2 s poměrem kroků 1e−11)
-z něj vyjde nesmyslný tlak (síla ~1e4) a **uložený konečný stav je znehodnocený**. Délku běhu proto řiď počtem kroků
-(`steps = 1200`) a `tEnd` nastav o půl kroku větší (`tEnd = 120.05`) nebo ho vynech; `forces.py` takový poslední
-záznam vyřadí.
+**`tEnd` a velmi krátký krok**: krok oříznutý na `tEnd` se u `BDFIncompressible` (BDF2 s poměrem kroků ≪ 1)
+projeví nesmyslným tlakem. FlowPro proto zbytek času pod 1e−6·dt (zaokrouhlení součtu kroků) nepočítá;
+`tEnd` nastavuj jako násobek `dt`, ne o kousek větší.

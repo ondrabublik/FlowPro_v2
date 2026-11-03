@@ -58,7 +58,7 @@ def main():
     dt = np.median(np.diff(d[:, 0]))
     t = d[:, 0] + dt  # the record belongs to the end of the time step
     y, fy = d[:, 2], d[:, 5]
-    # the last step cut by tEnd to dt ~ 1e-12 gives a nonsense force (see flowpro-postprocessing)
+    # older FlowPro versions: the last step cut by tEnd to dt ~ 1e-12 gives a nonsense force
     if len(fy) > 10 and abs(fy[-1]) > 20 * np.abs(fy[:-1]).max():
         print(f"skipped the last record (t = {t[-1]:.6g}): outlier, probably a tiny step cut by tEnd")
         t, y, fy = t[:-1], y[:-1], fy[:-1]

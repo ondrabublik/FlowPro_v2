@@ -45,7 +45,7 @@ pOut = 0.97250       % M = 0.2
 
 continueComputation = false
 steps = 1000
-tEnd = 400.2         % o půl kroku víc než steps * dt (krok oříznutý na 1e-12 škodí)
+tEnd = 400           % = steps * dt
 saveRate = 100
 
 spatialMethod = DGpure
@@ -107,6 +107,6 @@ a zadej `forces.py --q <½ρU²> --U <U>` (zde ρ = 0,982, `--q 0.0243 --U 0.222
 výpočtu na stejné síti, viz `flowpro-incompressible`) odpovídá nižšímu Re, stlačitelnosti při M = 0,19
 a zablokování kanálu 6 % (klouzavé stěny). Pro přesné hodnoty bez korekcí větší oblast nebo vzdálené pole
 (kruhová vnější hranice: vstupní polovina −2, výstupní −3).
-Válec zůstal pootočený o 1 rad, síť je tedy trvale zdeformovaná – pro obrázky pole použij
-`flowpro-postprocessing/scripts/remap_deformed.py`. Lepší je pootočení „tam a zpět“
+Válec zůstal pootočený o 1 rad, síť je tedy trvale zdeformovaná (`postprocessing` kreslí konečné řešení
+na deformované síti `PXY.txt`). Lepší je pootočení „tam a zpět“
 (`t < 20 ? 0.25*(1 - Math.cos(Math.PI*t/10)) : 0`), po kterém se síť vrátí do původního tvaru.

@@ -1,0 +1,49 @@
+%%% cylinder D = 1 on a torsional spring in a viscous fluid at rest, free rotation after tKick = 5
+%%% test of the fluid torque in the Rigid2D dynamics: I alpha'' + K alpha = M_fluid
+%%% boundary types: -1 cylinder (ALE 2 = body 1), -3 outer circle R = 10 (ALE 1 = fixed)
+model = NavierStokes
+results = mach, pressure, velocity, vorticity
+dimension = 2
+isFlowViscous = true
+viscosity = 0.01        % dynamic viscosity in solver units (rho = 1)
+conductivity = 0.019444 % cp * viscosity / Pr = 1.4 * 0.01 / 0.72
+lRef = 1
+cv = 1
+kappa = 1.4
+isInletSupersonic = false
+pIn0 = 1
+rhoIn0 = 1
+pOut = 1                % fluid at rest
+
+continueComputation = false
+steps = 300
+tEnd = 60               % = steps * dt
+saveRate = 50
+
+spatialMethod = DGpure
+timeMethod = BDF
+timeOrder = 2
+dt = 0.2
+linearSolver = gmres
+preconditioner = ilu0
+order = 2
+threads = 16
+newtonIters = 3
+newtonIterTol = 1e-3
+penalty = 1
+dampTol = 0
+dampConst = 0
+
+movingMesh = true
+dynamicsModel = Rigid2D
+meshDeformationType = Rigid2D
+rotationCenters = 0, 0
+M = 1, 0, 0, 0, 1, 0, 0, 0, 0.2
+B = 0, 0, 0, 0, 0, 0, 0, 0, 0
+K = 0, 0, 0, 0, 0, 0, 0, 0, 0.05
+xFreedom = false
+yFreedom = false
+alphaFreedom = true
+% smooth rotation to alpha = 0.1 with zero velocity at t = 5, then free oscillation (omega = 0.5)
+alphaMotion = t < 5 ? 0.05*(1 - Math.cos(Math.PI*t/5)) : 0.1
+tKick = 5
