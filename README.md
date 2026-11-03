@@ -127,7 +127,7 @@ against finite differences and linear solvers against a direct solver.
 
 ## Claude Code skills
 
-`.claude/skills` contains skills (in Czech) for [Claude Code](https://claude.com/claude-code) that describe
+`.claude/skills` contains skills for [Claude Code](https://claude.com/claude-code) that describe
 how to set up, run and evaluate typical tasks, each verified on a test problem:
 
 | Skill | Task | Verification |
@@ -137,7 +137,7 @@ how to set up, run and evaluate typical tasks, each verified on a test problem:
 | `flowpro-navier-stokes` | unsteady compressible viscous flow | cylinder, Re = 100, M = 0.2 |
 | `flowpro-incompressible` | unsteady incompressible viscous flow | cylinder, Re = 100 |
 | `flowpro-turbulence` | RANS / URANS (Spalart–Allmaras, k-ω SST) | turbulent flat plate, skin friction |
-| `flowpro-moving-boundary` | moving and deforming meshes (ALE, rigid bodies) | cylinder oscillating in a fluid at rest vs. Stokes solution |
+| `flowpro-moving-boundary` | moving and deforming meshes (ALE, rigid bodies, free motion) | cylinder oscillating in a fluid at rest vs. Stokes solution, cylinder on a torsional spring |
 | `flowpro-postprocessing` | running, monitoring, export, forces, Strouhal number | used by all the skills |
 
 ## Changes in version 2

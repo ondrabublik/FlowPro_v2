@@ -1,33 +1,33 @@
 ---
 name: flowpro-euler
-description: Nestacionární proudění stlačitelné nevazké tekutiny (Eulerovy rovnice) ve FlowPro – nastavení parameters.txt (model NavierStokes bez viskozity nebo AdiabaticEulers), počáteční podmínka skriptem initScript.js, časová integrace RK3 / BDF2 s pevným krokem, tEnd, ukládání snímků, stabilizace rázových vln, ověření na Sodově rázové trubici. Použij pro nevazké nestacionární úlohy – rázové trubice, šíření rázových vln, akustické a nestacionární obtékání, přechodové děje v kanálech.
+description: Unsteady flow of a compressible inviscid fluid (Euler equations) in FlowPro – parameters.txt setup (model NavierStokes without viscosity or AdiabaticEulers), initial condition by the script initScript.js, RK3 / BDF2 time integration with a fixed step, tEnd, saving snapshots, shock stabilisation, verification on the Sod shock tube. Use for inviscid unsteady problems – shock tubes, shock wave propagation, acoustic and unsteady external flows, transients in channels.
 ---
 
-# Nestacionární Eulerovy rovnice (FlowPro)
+# Unsteady Euler equations (FlowPro)
 
-Předpoklady: síť v `simulations/GEOMETRIE/mesh/` (skill `flowpro-mesh`), JARy sestavené (`gradlew build`).
-Příkazy se spouštějí v adresáři `FlowPro`. Výsledky a jejich zpracování: skill `flowpro-postprocessing`.
+Prerequisites: a mesh in `simulations/GEOMETRY/mesh/` (skill `flowpro-mesh`), built JARs (`gradlew build`).
+Commands are run in the `FlowPro` directory. Results and their processing: skill `flowpro-postprocessing`.
 
-## Volba modelu
+## Choice of the model
 
-| model | rovnice | poznámka |
+| model | equations | note |
 |---|---|---|
-| `NavierStokes` + `isFlowViscous = false` | úplné Eulerovy rovnice (ρ, ρu, ρv, E) | standard; stěna −1 i −4 je klouzavá |
-| `AdiabaticEulers` | izentropické Eulerovy rovnice (bez energie) | jen bez rázů / se slabými rázy |
+| `NavierStokes` + `isFlowViscous = false` | full Euler equations (ρ, ρu, ρv, E) | standard; walls −1 and −4 are both slip walls |
+| `AdiabaticEulers` | isentropic Euler equations (no energy) | only without shocks / with weak shocks |
 
-Šablona: `Tools/FlowProControl/src/main/resources/flowpro/control/templates/euler.txt` (ustálené proudění kanálem);
-pro nestacionární úlohu ji uprav podle níže.
+Template: `Tools/FlowProControl/src/main/resources/flowpro/control/templates/euler.txt` (steady channel flow);
+adapt it for an unsteady problem as below.
 
-## Bezrozměrné veličiny – důležité
+## Dimensionless quantities – important
 
-Model vše převádí na bezrozměrné veličiny: `pRef = pIn0`, `rhoRef = rhoIn0`, `vRef = √(pRef/rhoRef)`,
-`tRef = lRef / vRef`. **`dt`, `tEnd`, `timeSaveRate` a čas v `residuum.txt` jsou v jednotkách `tRef`**, stav W
-a hodnoty z `initScript.js` jsou bezrozměrné (ρ/ρRef, ρu/(ρRef vRef), E/pRef).
-Nejjednodušší je zadávat `pIn0 = 1`, `rhoIn0 = 1`, `lRef = 1` – pak jsou zadané a výpočtové hodnoty totožné.
-Model vyžaduje vstupní/výstupní parametry (`isInletSupersonic`, `pIn0`, `rhoIn0`, `pOut`) i když síť
-nemá vstup ani výstup – určují referenční stav. Úhel `attackAngle` je v radiánech.
+The model converts everything to dimensionless quantities: `pRef = pIn0`, `rhoRef = rhoIn0`, `vRef = √(pRef/rhoRef)`,
+`tRef = lRef / vRef`. **`dt`, `tEnd`, `timeSaveRate` and the time in `residuum.txt` are in units of `tRef`**, the state W
+and the values of `initScript.js` are dimensionless (ρ/ρRef, ρu/(ρRef vRef), E/pRef).
+The simplest choice is `pIn0 = 1`, `rhoIn0 = 1`, `lRef = 1` – the given and the computed values are then identical.
+The model requires the inlet/outlet parameters (`isInletSupersonic`, `pIn0`, `rhoIn0`, `pOut`) even if the mesh
+has no inlet or outlet – they define the reference state. The angle `attackAngle` is in radians.
 
-## Nestacionární parameters.txt (jádro)
+## Unsteady parameters.txt (core)
 
 ```
 model = NavierStokes
@@ -39,59 +39,59 @@ kappa = 1.4
 isInletSupersonic = false
 pIn0 = 1
 rhoIn0 = 1
-pOut = 0.9            % podzvukový výstup: pIn0/pOut určuje Machovo číslo
+pOut = 0.9            % subsonic outlet: pIn0/pOut determines the Mach number
 
 continueComputation = false
-steps = 100000        % horní mez, výpočet ukončí tEnd
-tEnd = 0.2            % konečný čas (v tRef)
-timeSaveRate = 0.01   % ukládání po čase (nebo saveRate = N kroků)
-animation = true      % každé uložení i do animation/We########.txt (+ vertices pro pohyblivou síť)
+steps = 100000        % upper limit, the computation is ended by tEnd
+tEnd = 0.2            % final time (in tRef)
+timeSaveRate = 0.01   % saving by time (or saveRate = N steps)
+animation = true      % every save also to animation/We########.txt (+ vertices for a moving mesh)
 
 spatialMethod = DGpure
-order = 2             % p + 1; p = 1 je robustní, p = 2 pro hladká pole
-dampTol = 3           % detektor rázů + umělá viskozita (0 = vypnuto, pro hladké úlohy)
+order = 2             % p + 1; p = 1 is robust, p = 2 for smooth fields
+dampTol = 3           % shock detector + artificial viscosity (0 = off, for smooth problems)
 dampConst = 0
 penalty = 1
 threads = 8
 ```
 
-Časová integrace – vyber jednu variantu:
+Time integration – choose one variant:
 
-* **Explicitní RK3 (rázy, krátké děje)**: `timeMethod = RK`, `timeOrder = 3`, `CFL = 0.3`,
-  `linearSolver = gmres`, `preconditioner = none`, `newtonIters = 1`. CFL je už vztažené k řádu
-  (krok obsahuje 1/(2p+1)), 0,3 funguje pro p = 1 i 2. Krok je globální (časově přesný).
-* **Implicitní BDF2 s pevným krokem (dlouhé děje, nízké Machovo číslo)**: `timeMethod = BDF`,
-  `timeOrder = 2`, `dt = ...` (místo `CFL`; obojí najednou = použije se CFL), `linearSolver = gmres`,
-  `preconditioner = ilu0`, `newtonIters = 3–5`, `newtonIterTol = 1e-4`. První krok je automaticky BDF1.
-  Krok volit podle děje, ne podle stability (např. 50–200 kroků na periodu).
-* **Nepoužívat pro časově přesné výpočty**: adaptivní CFL (`CFL <= 0`) – mění krok podle residua;
-  `newtonIters = 1` s BDF při velkém kroku – nelineární chyba v každém kroku.
+* **Explicit RK3 (shocks, short transients)**: `timeMethod = RK`, `timeOrder = 3`, `CFL = 0.3`,
+  `linearSolver = gmres`, `preconditioner = none`, `newtonIters = 1`. The CFL is already scaled by the order
+  (the step contains 1/(2p+1)), 0.3 works for p = 1 and 2. The step is global (time accurate).
+* **Implicit BDF2 with a fixed step (long processes, low Mach number)**: `timeMethod = BDF`,
+  `timeOrder = 2`, `dt = ...` (instead of `CFL`; with both the CFL is used), `linearSolver = gmres`,
+  `preconditioner = ilu0`, `newtonIters = 3–5`, `newtonIterTol = 1e-4`. The first step is BDF1 automatically.
+  Choose the step by the physics, not by stability (e.g. 50–200 steps per period).
+* **Do not use for time-accurate computations**: adaptive CFL (`CFL <= 0`) – it changes the step by the residual;
+  `newtonIters = 1` with BDF and a large step – nonlinear error in every step.
 
-Počáteční podmínka:
-* `initScript.js` v adresáři výpočtu – `function init(x) { return [rho, rho*u, rho*v, E]; }`,
-  `E = p/(kappa-1) + 0.5*rho*(u*u + v*v)`; vyhodnotí se v těžišti elementu (po elementech konstantní).
-* `initW.txt` – hodnoty pro každý element (řádek = element).
-* bez obou: konstantní stav modelu (klid / nabíhající proud podle okrajových podmínek).
-* ustálený stav jako počátek: nejprve ustálený výpočet (BDF1, `CFL = 0` adaptivní nebo `CFL = 5–50`,
-  `residuum = 1e-6`), pak ve stejném adresáři `continueComputation = true`, `dt`, `timeOrder = 2`, `tEnd`
-  (čas pokračuje; `tEnd` je absolutní čas, ne délka běhu – aktuální čas je `t=` ve `state.txt`).
+Initial condition:
+* `initScript.js` in the simulation directory – `function init(x) { return [rho, rho*u, rho*v, E]; }`,
+  `E = p/(kappa-1) + 0.5*rho*(u*u + v*v)`; evaluated at the element centroid (piecewise constant).
+* `initW.txt` – values for every element (row = element).
+* neither: constant state of the model (rest / free stream given by the boundary conditions).
+* steady state as the start: first a steady computation (BDF1, adaptive `CFL = 0` or `CFL = 5–50`,
+  `residuum = 1e-6`), then in the same directory `continueComputation = true`, `dt`, `timeOrder = 2`, `tEnd`
+  (time continues; `tEnd` is the absolute time, not the length of the run – the current time is `t=` in `state.txt`).
 
-## Spuštění
+## Running
 
 ```
-java -jar FlowPro.jar check -g GEOM -s SIM                 # kontrola parametrů a sítě
-java -jar FlowPro.jar run -g GEOM -s SIM > SIM.log 2>&1     # dlouhý výpočet spouštěj na pozadí
-java -jar FlowPro.jar run -g GEOM -s SIM -p dt=5e-4 -p tEnd=0.1   # dočasné přepsání parametrů
+java -jar FlowPro.jar check -g GEOM -s SIM                 # check of the parameters and the mesh
+java -jar FlowPro.jar run -g GEOM -s SIM > SIM.log 2>&1     # run long computations in the background
+java -jar FlowPro.jar run -g GEOM -s SIM -p dt=5e-4 -p tEnd=0.1   # temporary override of parameters
 ```
-Zastavení s uložením: soubor `STOP` v adresáři výpočtu. Řádek výpisu
-`N/steps resid: … dt: … t: … CFL: …`; `residuum.txt`: sloupce relativní residuum, čas, CPU [ms], residua rovnic.
-U nestacionárních úloh residuum neklesá k nule – sleduj čas `t` a fyzikální veličiny.
+Stop with saving: a file `STOP` in the simulation directory. Output line
+`N/steps resid: … dt: … t: … CFL: …`; `residuum.txt`: columns relative residual, time, CPU [ms], residuals of the equations.
+In unsteady problems the residual does not go to zero – watch the time `t` and the physical quantities.
 
-## Ověření (vzorová úloha – Sodova trubice)
+## Verification (sample problem – Sod shock tube)
 
-Síť 200 × 4 čtyřúhelníky na [0, 1] × [0, 0.02], všechny hranice −4 (`block 0 1 2 3 200 4 1 1 -4 -4 -4 -4 0 0 0 0`),
-`initScript.js`: vlevo (x < 0.5) ρ = 1, p = 1, vpravo ρ = 0.125, p = 0.1, `tEnd = 0.2`, p = 1, `dampTol = 3`.
-Soubory jsou v `examples/sod/` tohoto skillu (`geometry.geo2d`, `initScript.js`, `parameters_rk3.txt`, `parameters_bdf2.txt`):
+Mesh of 200 × 4 quadrilaterals on [0, 1] × [0, 0.02], all boundaries −4 (`block 0 1 2 3 200 4 1 1 -4 -4 -4 -4 0 0 0 0`),
+`initScript.js`: left (x < 0.5) ρ = 1, p = 1, right ρ = 0.125, p = 0.1, `tEnd = 0.2`, p = 1, `dampTol = 3`.
+The files are in `examples/sod/` of this skill (`geometry.geo2d`, `initScript.js`, `parameters_rk3.txt`, `parameters_bdf2.txt`):
 
 ```
 mkdir -p simulations/skills/sod/mesh simulations/skills/sod/rk3
@@ -102,23 +102,23 @@ java -jar MeshGenerator2D.jar --batch simulations/skills/sod/mesh/geometry.geo2d
 java -jar FlowPro.jar run -g skills/sod -s rk3
 java -jar FlowPro.jar postprocessing density pressure velocity -ftxt -d2 -g skills/sod -s rk3
 python <flowpro-postprocessing>/scripts/sample.py simulations/skills/sod/rk3/output density pressure velocity --line 0 0.01 1 0.01 400 --csv line.csv
-python <tento skill>/scripts/riemann_exact.py --left 1 0 1 --right 0.125 0 0.1 --t 0.2 --compare line.csv
+python <this skill>/scripts/riemann_exact.py --left 1 0 1 --right 0.125 0 0.1 --t 0.2 --compare line.csv
 ```
-Výsledek (ověřeno, střední |ρ − ρ_exact| podél osy trubice):
+Result (verified, mean |ρ − ρ_exact| along the tube axis):
 
-| varianta | kroků | čas | L1 chyba ρ | L1 chyba p |
+| variant | steps | time | L1 error ρ | L1 error p |
 |---|---|---|---|---|
-| RK3, p = 1, CFL 0,3 | 886 | 3 s | 2,5e−3 | 2,0e−3 |
-| BDF2, p = 1, dt = 1e−3, 4 Newtonovy iterace | 200 | 31 s | 2,4e−3 | 1,8e−3 |
-| RK3, p = 2, CFL 0,3 | 1464 | 65 s (2 vlákna) | 1,3e−3 | 1,1e−3 |
+| RK3, p = 1, CFL 0.3 | 886 | 3 s | 2.5e−3 | 2.0e−3 |
+| BDF2, p = 1, dt = 1e−3, 4 Newton iterations | 200 | 31 s | 2.4e−3 | 1.8e−3 |
+| RK3, p = 2, CFL 0.3 | 1464 | 65 s (2 threads) | 1.3e−3 | 1.1e−3 |
 
-Poloha rázu, kontaktní nespojitosti i zředění souhlasí s přesným řešením, překmit na rázu < 10 % (rychlost). Skript `riemann_exact.py` řeší libovolný Riemannův problém (stavy ρ, u, p).
+The positions of the shock, the contact discontinuity and the rarefaction agree with the exact solution, the overshoot at the shock is < 10 % (velocity). The script `riemann_exact.py` solves any Riemann problem (states ρ, u, p).
 
-## Časté problémy
+## Common problems
 
-* `NaN` / záporný tlak na začátku: silná nespojitost v počáteční podmínce bez `dampTol` → zapnout `dampTol = 3`,
-  snížit CFL, `order = 2`. Limiter pozitivity (`positivityLimiter = true`) je zapnutý ve výchozím stavu.
-* Oscilace za rázem při p ≥ 2: zvýšit `dampConst` (např. 0.1) nebo zjemnit síť.
-* Odraz vln od výstupu: podzvukový výstup −3 drží `pOut`, akustické vlny se částečně odrážejí; výstup dál od oblasti zájmu.
-* Výsledek nesedí s očekávaným Machovým číslem: podzvukové vstupy jsou dány poměrem `pIn0/pOut`
-  (M = √(2/(κ−1)·((pIn0/pOut)^((κ−1)/κ) − 1))), ne rychlostí.
+* `NaN` / negative pressure at the start: a strong discontinuity in the initial condition without `dampTol` → set `dampTol = 3`,
+  lower the CFL, `order = 2`. The positivity limiter (`positivityLimiter = true`) is on by default.
+* Oscillations behind a shock with p ≥ 2: increase `dampConst` (e.g. 0.1) or refine the mesh.
+* Waves reflected from the outlet: the subsonic outlet −3 holds `pOut`, acoustic waves are partly reflected; move the outlet away from the region of interest.
+* The result does not match the expected Mach number: subsonic inlets are given by the ratio `pIn0/pOut`
+  (M = √(2/(κ−1)·((pIn0/pOut)^((κ−1)/κ) − 1))), not by a velocity.

@@ -1,81 +1,81 @@
 ---
 name: flowpro-postprocessing
-description: Spouštění, sledování a vyhodnocení výpočtů FlowPro – běh na pozadí, residuum.txt, řízené zastavení, export výsledků (postprocessing do VTK/ParaView a textu), vzorkování podél přímky a v bodech, snímky animace, síly na tělesech z bodiesDynamic.txt (c_D, c_L, Strouhalovo číslo), grafy. Použij při vyhodnocování nebo kontrole libovolného výpočtu FlowPro; ostatní skilly flowpro-* na něj odkazují.
+description: Running, monitoring and evaluating FlowPro computations – running in the background, residuum.txt, controlled stop, export of results (postprocessing to VTK/ParaView and text), sampling along a line and at points, animation snapshots, forces on bodies from bodiesDynamic.txt (c_D, c_L, Strouhal number), plots. Use when evaluating or checking any FlowPro computation; the other flowpro-* skills refer to it.
 ---
 
-# Běh a vyhodnocení výpočtů FlowPro
+# Running and evaluating FlowPro computations
 
-Vše v adresáři `FlowPro` (`cd FlowPro`). Skripty jsou v `scripts/` tohoto skillu (Python 3 + numpy, scipy, matplotlib).
+Everything in the `FlowPro` directory (`cd FlowPro`). The scripts are in `scripts/` of this skill (Python 3 + numpy, scipy, matplotlib).
 
-## Spuštění a sledování
+## Running and monitoring
 
 ```
-java -jar FlowPro.jar check -g GEOM -s SIM                         # parametry + síť, nic nepočítá
-java -jar FlowPro.jar run -g GEOM -s SIM > simulations/GEOM/SIM.log 2>&1   # na pozadí (run_in_background)
-java -jar FlowPro.jar run -g GEOM -s SIM -p steps=20               # zkušební běh (odhad s/krok)
+java -jar FlowPro.jar check -g GEOM -s SIM                         # parameters + mesh, computes nothing
+java -jar FlowPro.jar run -g GEOM -s SIM > simulations/GEOM/SIM.log 2>&1   # in the background (run_in_background)
+java -jar FlowPro.jar run -g GEOM -s SIM -p steps=20               # trial run (estimate of s/step)
 java -jar FlowPro.jar list | params | help
 ```
-* Vždy nejdřív zkušební běh 10–20 kroků: čas na krok × počet kroků = doba výpočtu. Dlouhé výpočty pouštěj
-  na pozadí a průběh čti z logu (`grep "resid:" SIM.log | tail -n 1`), neblokuj se čekáním.
-* Řádek logu: `krok/steps resid: R dt: … t: … CFL: … CPU: … AT: sestavení ST: řešení soustavy`.
-  `WARN … GMRES does not converge, time step reduced` = lineární řešič nedokonvergoval; při pevném `dt` se krok
-  půlí a po opakovaných selháních výpočet skončí `ERROR … algorithm does not converge`.
-* `python scripts/residuum.py simulations/GEOM/SIM [--png r.png]` – shrnutí `residuum.txt`
-  (sloupce: relativní residuum = max přes rovnice, čas, CPU [ms], residua jednotlivých rovnic).
-* Řízené zastavení: vytvoř soubor `simulations/GEOM/SIM/STOP` → dokončí krok, uloží, skončí.
-  Pokračování: `continueComputation = true` (nebo `-p continueComputation=true`); `steps` je počet kroků dalšího
-  běhu, `tEnd` absolutní čas. Před novým výpočtem od začátku smaž `W.txt We.txt state.txt residuum.txt`.
-  `bodiesDynamic.txt` se vymaže jen při novém výpočtu (`continueComputation = false`), při pokračování se
-  připisuje (první záznam pokračování může opakovat čas – `forces.py` bere poslední záznam daného času).
-* **Pevný `dt` a `tEnd`**: výpočet skončí v `tEnd`; zbytek času menší než 1e−6·dt (zaokrouhlení součtu kroků,
-  1200 × 0,1 = 119,99999999999746) se jako další krok nepočítá, `tEnd = steps · dt` je tedy v pořádku.
-  Pokud `tEnd` není násobkem `dt`, poslední krok se zkrátí (BDF2 s proměnným krokem).
-* Více výpočtů najednou: součet `threads` ≤ počet jader.
+* Always do a trial run of 10–20 steps first: time per step × number of steps = duration of the computation. Run long computations
+  in the background and read the progress from the log (`grep "resid:" SIM.log | tail -n 1`), do not block waiting.
+* Log line: `step/steps resid: R dt: … t: … CFL: … CPU: … AT: assembly ST: solution of the system`.
+  `WARN … GMRES does not converge, time step reduced` = the linear solver did not converge; with a fixed `dt` the step is
+  halved and after repeated failures the computation ends with `ERROR … algorithm does not converge`.
+* `python scripts/residuum.py simulations/GEOM/SIM [--png r.png]` – summary of `residuum.txt`
+  (columns: relative residual = max over the equations, time, CPU [ms], residuals of the individual equations).
+* Controlled stop: create the file `simulations/GEOM/SIM/STOP` → finishes the step, saves, ends.
+  Continuation: `continueComputation = true` (or `-p continueComputation=true`); `steps` is the number of steps of the next
+  run, `tEnd` the absolute time. Before a new computation from scratch delete `W.txt We.txt state.txt residuum.txt`.
+  `bodiesDynamic.txt` is cleared only for a new computation (`continueComputation = false`), on a continuation it is
+  appended to (the first record of the continuation may repeat a time – `forces.py` takes the last record of a time).
+* **Fixed `dt` and `tEnd`**: the computation ends at `tEnd`; a remainder smaller than 1e−6·dt (round-off of the summed steps,
+  1200 × 0.1 = 119.99999999999746) is not computed as another step, so `tEnd = steps · dt` is fine.
+  If `tEnd` is not a multiple of `dt`, the last step is shortened (BDF2 with a variable step).
+* Several computations at once: sum of `threads` ≤ number of cores.
 
-## Výstupy výpočtu (`simulations/GEOM/SIM/`)
+## Outputs of a computation (`simulations/GEOM/SIM/`)
 
-`We.txt` (koeficienty DG řešení), `W.txt` (průměry v elementech), `state.txt` (krok, čas `t`, CFL, …),
-`residuum.txt`, `animation/We########.txt` (+ `vertices########.txt` při pohyblivé síti) pro `animation = true`,
-`bodiesDynamic.txt` pro pohyblivou síť (viz níže).
+`We.txt` (coefficients of the DG solution), `W.txt` (element averages), `state.txt` (step, time `t`, CFL, …),
+`residuum.txt`, `animation/We########.txt` (+ `vertices########.txt` for a moving mesh) for `animation = true`,
+`bodiesDynamic.txt` for a moving mesh (see below).
 
-## Export výsledků
+## Export of results
 
 ```
 java -jar FlowPro.jar postprocessing mach pressure velocity -fvtk -g GEOM -s SIM          # ParaView: output/results.vtk
 java -jar FlowPro.jar postprocessing density pressure velocity -ftxt -d2 -g GEOM -s SIM -oout_d2
-java -jar FlowPro.jar postprocessing vorticity -ftxt -d2 -i00000400 -g GEOM -s SIM -osnap400  # snímek animace
+java -jar FlowPro.jar postprocessing vorticity -ftxt -d2 -i00000400 -g GEOM -s SIM -osnap400  # animation snapshot
 ```
-* Názvy veličin = parametr `results` modelu (`mach, pressure, velocity, vorticity, temperature, density, mut, …`)
-  a `W0, W1, …` (složky řešení).
-* `-dN` = hodnoty v bodech elementů dělených na N dílů na hranu (polynom DG, vhodné pro p ≥ 1);
-  bez `-d` průměry do vrcholů. `-iITER` = snímek z `animation/`, `-oDIR` = výstupní podadresář.
-* **Pohyblivá síť**: konečné řešení (bez `-i`) se kreslí na deformované síti `SIM/PXY.txt` (ukládá se spolu
-  s `We.txt`), snímek animace `-iITER` na `animation/vertices########.txt`. Bez `PXY.txt` se použije `mesh/vertices.txt`.
-* `python scripts/sample.py OUTDIR q1 q2 --line X0 Y0 X1 Y1 N --csv line.csv` – hodnoty podél přímky
-  (`velocity` → `xvelocity`, `yvelocity`); `--points X Y X Y …` – sondy.
+* Quantity names = the `results` parameter of the model (`mach, pressure, velocity, vorticity, temperature, density, mut, …`)
+  and `W0, W1, …` (components of the solution).
+* `-dN` = values at the points of elements divided into N parts per edge (DG polynomial, suitable for p ≥ 1);
+  without `-d` averages at the vertices. `-iITER` = snapshot from `animation/`, `-oDIR` = output subdirectory.
+* **Moving mesh**: the final solution (without `-i`) is plotted on the deformed mesh `SIM/PXY.txt` (saved together
+  with `We.txt`), an animation snapshot `-iITER` on `animation/vertices########.txt`. Without `PXY.txt` `mesh/vertices.txt` is used.
+* `python scripts/sample.py OUTDIR q1 q2 --line X0 Y0 X1 Y1 N --csv line.csv` – values along a line
+  (`velocity` → `xvelocity`, `yvelocity`); `--points X Y X Y …` – probes.
 
-## Síly na tělesech (`bodiesDynamic.txt`)
+## Forces on bodies (`bodiesDynamic.txt`)
 
-Zapisuje je dynamika `Rigid2D` (vyžaduje `movingMesh = true`; pro **nehybné těleso** stačí
-`alphaMotion = 0` – trik pro průběh sil i na statické síti). Řádek: `t` a pro každé těleso
-`x y alpha Fx Fy M` (M = moment k `rotationCenters`). Síly jsou na jednotku hloubky v jednotkách řešiče,
-tj. vztažené k `pRef · lRef`.
+Written by the `Rigid2D` dynamics (requires `movingMesh = true`; for a **fixed body** `alphaMotion = 0`
+is enough – a trick to get the forces on a static mesh too). Row: `t` and for every body
+`x y alpha Fx Fy M` (M = torque about `rotationCenters`). The forces are per unit depth in solver units,
+i.e. related to `pRef · lRef`.
 
-* **Časování**: sloupec `t` je začátek kroku, poloha patří času `t + dt`; síla se počítá z řešení
-  předposlední Newtonovy iterace kroku (`newtonIters = 1` → síla z času `t`, `≥ 2` → přibližně `t + dt`).
-  Pro fázi a frekvenci na tom záleží – posuň čas o `dt` a používej `newtonIters ≥ 2`.
+* **Timing**: the column `t` is the start of the step, the position belongs to time `t + dt`; the force is computed from the solution
+  of the last but one Newton iteration of the step (`newtonIters = 1` → force from time `t`, `≥ 2` → approximately `t + dt`).
+  This matters for the phase and frequency – shift the time by `dt` and use `newtonIters ≥ 2`.
 * `python scripts/forces.py simulations/GEOM/SIM/bodiesDynamic.txt --from T0 --L 1 [--png f.png]` +
-  - nestlačitelné modely: `--q 0.5 --U 1` (výchozí; `pRef = ρ|VIn|²`, rychlost v jednotkách |VIn|),
-  - stlačitelné modely: `--stagnation KAPPA PIN0 RHOIN0 POUT` (q a U nabíhajícího proudu z klidového stavu).
-  Vypíše střední hodnotu a amplitudu c_x, c_y, c_m a frekvenci vztlaku (FFT a průchody nulou) a St = f L / U.
-  Ověřeno na `NACA0012pitching/k175` (U∞ = 0,4556, frekvence = ω/2π = 0,2538).
+  - incompressible models: `--q 0.5 --U 1` (default; `pRef = ρ|VIn|²`, velocity in units of |VIn|),
+  - compressible models: `--stagnation KAPPA PIN0 RHOIN0 POUT` (q and U of the free stream from the stagnation state).
+  Prints the mean and amplitude of c_x, c_y, c_m, the lift frequency (FFT and zero crossings) and St = f L / U.
+  Verified on `NACA0012pitching/k175` (U∞ = 0.4556, frequency = ω/2π = 0.2538).
 
-## Bezrozměrné jednotky (shrnutí)
+## Dimensionless units (summary)
 
-| modely | pRef | rhoRef | vRef | tRef |
+| models | pRef | rhoRef | vRef | tRef |
 |---|---|---|---|---|
-| stlačitelné (`NavierStokes`, `SpalartAllmaras`, `KOmegaSST`, …) | `pIn0` | `rhoIn0` | √(pIn0/rhoIn0) | lRef/vRef |
-| nestlačitelné (`IncompressibleNavierStokes*`) | ρ·\|VIn\|² | `density` | \|VIn\| | lRef/\|VIn\| |
+| compressible (`NavierStokes`, `SpalartAllmaras`, `KOmegaSST`, …) | `pIn0` | `rhoIn0` | √(pIn0/rhoIn0) | lRef/vRef |
+| incompressible (`IncompressibleNavierStokes*`) | ρ·\|VIn\|² | `density` | \|VIn\| | lRef/\|VIn\| |
 
-`dt`, `tEnd`, `timeSaveRate` a výstupní čas jsou v `tRef`; skripty pohybu těles (`xMotion`, …) dostávají
-rozměrný čas `t·tRef`. Pro jednoduchost volit referenční hodnoty 1 (`pIn0 = rhoIn0 = lRef = 1`, resp. `|VIn| = 1`).
+`dt`, `tEnd`, `timeSaveRate` and the output time are in `tRef`; the body motion scripts (`xMotion`, …) get the
+dimensional time `t·tRef`. For simplicity choose reference values 1 (`pIn0 = rhoIn0 = lRef = 1`, or `|VIn| = 1`).

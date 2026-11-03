@@ -1,27 +1,27 @@
 ---
 name: flowpro-incompressible
-description: Nestacionární proudění nestlačitelné vazké tekutiny (nestlačitelné Navierovy–Stokesovy rovnice) ve FlowPro – model IncompressibleNavierStokes, DGpureIncompressible + BDFIncompressible (BDF2, pevný krok), nastavení řešiče (blockilu0, iterativeSolverTol), vstupní profily, Reynoldsovo číslo, síly a Strouhalovo číslo, ověření na obtékání válce při Re = 100. Použij pro laminární nestlačitelné úlohy – obtékání těles, odtrhávání vírů, kanály, kavity.
+description: Unsteady flow of an incompressible viscous fluid (incompressible Navier–Stokes equations) in FlowPro – model IncompressibleNavierStokes, DGpureIncompressible + BDFIncompressible (BDF2, fixed step), solver settings (blockilu0, iterativeSolverTol), inlet profiles, Reynolds number, forces and the Strouhal number, verification on the flow past a cylinder at Re = 100. Use for laminar incompressible problems – flow past bodies, vortex shedding, channels, cavities.
 ---
 
-# Nestacionární nestlačitelné Navierovy–Stokesovy rovnice (FlowPro)
+# Unsteady incompressible Navier–Stokes equations (FlowPro)
 
-Předpoklady: síť (skill `flowpro-mesh`), spouštění a vyhodnocení (skill `flowpro-postprocessing`).
-Turbulentní nestlačitelné proudění (Spalart–Allmaras): skill `flowpro-turbulence`.
+Prerequisites: mesh (skill `flowpro-mesh`), running and evaluation (skill `flowpro-postprocessing`).
+Turbulent incompressible flow (Spalart–Allmaras): skill `flowpro-turbulence`.
 
-## Model a jednotky
+## Model and units
 
-* `model = IncompressibleNavierStokes`, neznámé W = (p, u, v) – tlak je první složka (`W0`).
-* Bezrozměrné veličiny: rychlost / |VIn|, délka / `lRef`, čas / (lRef/|VIn|), tlak / (ρ|VIn|²).
-  **Re = |VIn| · lRef / viscosity** (nebo přímo `reynolds`, má přednost). Vypíše se při startu (`Reynolds number …`).
-  `VIn` nesmí být nulové (referenční rychlost) – úlohy „v klidu“ (kmitající těleso v klidné tekutině) řeš stlačitelným
-  modelem při nízkém Machově čísle (skill `flowpro-moving-boundary`).
-* `pOut` se zadává přímo v bezrozměrných jednotkách ρ|VIn|² (obvykle 0).
-* Okrajové podmínky: −1 stěna no-slip (na pohyblivé síti rychlost stěny), −2 vstup (rychlost), −3 výstup
-  (tlak `pOut`, rychlost extrapolovaná), −4 klouzavá stěna / symetrie.
-* `inletType`: `velocity` (výchozí, konstantní `VIn`), `parabola` (parabolický profil s průměrem |VIn|, **napevno
-  pro kanál y ∈ [0, 1]**), `parabola2` (konstantní `VIn`, x-složka náběhem (1 − cos(πt/2))/2 během t·tRef < 2).
+* `model = IncompressibleNavierStokes`, unknowns W = (p, u, v) – the pressure is the first component (`W0`).
+* Dimensionless quantities: velocity / |VIn|, length / `lRef`, time / (lRef/|VIn|), pressure / (ρ|VIn|²).
+  **Re = |VIn| · lRef / viscosity** (or directly `reynolds`, which takes precedence). Printed at the start (`Reynolds number …`).
+  `VIn` must not be zero (reference velocity) – solve problems "at rest" (a body oscillating in a fluid at rest) with the compressible
+  model at a low Mach number (skill `flowpro-moving-boundary`).
+* `pOut` is given directly in the dimensionless units ρ|VIn|² (usually 0).
+* Boundary conditions: −1 no-slip wall (on a moving mesh the wall velocity), −2 inlet (velocity), −3 outlet
+  (pressure `pOut`, extrapolated velocity), −4 slip wall / symmetry.
+* `inletType`: `velocity` (default, constant `VIn`), `parabola` (parabolic profile with the mean |VIn|, **hard-coded
+  for a channel y ∈ [0, 1]**), `parabola2` (constant `VIn`, x-component ramped by (1 − cos(πt/2))/2 during t·tRef < 2).
 
-## parameters.txt (ověřené nastavení)
+## parameters.txt (verified setup)
 
 ```
 model = IncompressibleNavierStokes
@@ -32,18 +32,18 @@ viscosity = 0.01      % Re = 1 * 1 / 0.01 = 100
 density = 1
 VIn = 1, 0
 pOut = 0
-lRef = 1              % referenční délka = průměr / tětiva / výška kanálu
+lRef = 1              % reference length = diameter / chord / channel height
 
 continueComputation = false
-steps = 1200          % délka běhu = steps * dt
+steps = 1200          % length of the run = steps * dt
 tEnd = 120            % = steps * dt
 saveRate = 200
-%animation = true     % snímky pro vizualizaci (velké soubory)
+%animation = true     % snapshots for visualisation (large files)
 
 spatialMethod = DGpureIncompressible
 timeMethod = BDFIncompressible
 timeOrder = 2
-dt = 0.1              % 50–100 kroků na periodu děje (St = 0.165 -> T = 6)
+dt = 0.1              % 50–100 steps per period (St = 0.165 -> T = 6)
 linearSolver = gmres
 preconditioner = blockilu0
 iterativeSolverTol = 0.1
@@ -56,56 +56,56 @@ dampTol = 0
 dampConst = 0
 ```
 
-Klíčová nastavení řešiče (ověřeno, viz níže):
-* **`preconditioner = blockilu0`** – `ilu0` skončí „zero pivot“ (rovnice kontinuity nemá časovou derivaci,
-  elementy se dvěma hraničními stěnami mají nulový diagonální tlakový člen). `blockjacobi` nekonverguje.
-* **`iterativeSolverTol = 0.1`** – GMRES(30) s 5 restarty nedosáhne pro tuto soustavu výchozí tolerance 1e−2
-  (v 2. kroku „GMRES does not converge“, krok se půlí až do pádu – zmenšení `dt` nepomáhá, tlaková část
-  soustavy na `dt` nezávisí). Nepřesný Newton pak potřebuje 2–3 iterace (`newtonIters = 3`, `newtonIterTol = 1e-3`).
-* `timeOrder = 2` s pevným `dt`; první krok je automaticky BDF1. Impulzní start z `VIn` (výchozí počáteční
-  podmínka) je v pořádku.
-* `order = 2` (p = 1) pro obtékání s odtrháváním; `order = 3` je přesnější, ale několikanásobně dražší na krok.
+Key solver settings (verified, see below):
+* **`preconditioner = blockilu0`** – `ilu0` ends with "zero pivot" (the continuity equation has no time derivative,
+  elements with two boundary faces have a zero diagonal pressure term). `blockjacobi` does not converge.
+* **`iterativeSolverTol = 0.1`** – GMRES(30) with 5 restarts does not reach the default tolerance 1e−2 for this system
+  ("GMRES does not converge" in the 2nd step, the step is halved until the computation aborts – a smaller `dt` does not help, the pressure part
+  of the system does not depend on `dt`). The inexact Newton method then needs 2–3 iterations (`newtonIters = 3`, `newtonIterTol = 1e-3`).
+* `timeOrder = 2` with a fixed `dt`; the first step is BDF1 automatically. An impulsive start from `VIn` (default initial
+  condition) is fine.
+* `order = 2` (p = 1) for flows with shedding; `order = 3` is more accurate but several times more expensive per step.
 
-## Síly a odtrhávání vírů
+## Forces and vortex shedding
 
-Síly se zapisují jen přes dynamiku těles. Pro nehybné těleso přidej (síť musí mít ALE značky:
-vnější hranice 1, těleso 2):
+The forces are written only by the body dynamics. For a fixed body add (the mesh must have ALE tags:
+outer boundary 1, body 2):
 ```
 movingMesh = true
 dynamicsModel = Rigid2D
 meshDeformationType = Rigid2D
 rotationCenters = 0, 0
-alphaMotion = t < 2 ? 0.1*(1 - Math.cos(Math.PI*t)) : 0   % krátké pootočení tam a zpět rozbije symetrii
+alphaMotion = t < 2 ? 0.1*(1 - Math.cos(Math.PI*t)) : 0   % a short rotation there and back breaks the symmetry
 ```
-Bez narušení symetrie se odtrhávání vírů rozvíjí jen z numerického šumu (stovky časových jednotek).
-Pootočení válce tam a zpět (kruhová stěna se točí, síť se deformuje jen dočasně) zrychlí start – nasycené
-odtrhávání od t ≈ 40; u nekruhového tělesa krátký výpočet s šikmým `VIn = 1, 0.05` a pokračování
-(`continueComputation = true`) s `VIn = 1, 0`, nebo `initScript.js` s asymetrickou poruchou.
-Vyhodnocení: `python <flowpro-postprocessing>/scripts/forces.py simulations/GEOM/SIM/bodiesDynamic.txt --from 60`
-(q = 0,5, U = 1 výchozí → c_D, c_L, St).
+Without breaking the symmetry the shedding develops only from numerical noise (hundreds of time units).
+Rotating the cylinder there and back (the circular wall rotates, the mesh is deformed only temporarily) speeds up the start – saturated
+shedding from t ≈ 40; for a non-circular body a short computation with an oblique `VIn = 1, 0.05` and a continuation
+(`continueComputation = true`) with `VIn = 1, 0`, or `initScript.js` with an asymmetric perturbation.
+Evaluation: `python <flowpro-postprocessing>/scripts/forces.py simulations/GEOM/SIM/bodiesDynamic.txt --from 60`
+(q = 0.5, U = 1 by default → c_D, c_L, St).
 
-## Ověření – válec při Re = 100
+## Verification – cylinder at Re = 100
 
-Síť `flowpro-mesh/scripts/example_cylinder.py` (válec D = 1, kanál [−8, 22] × [−8, 8], 11 382 trojúhelníků,
-96 stěn na válci), parametry výše (`examples/cylinder_Re100.txt`).
+Mesh `flowpro-mesh/scripts/example_cylinder.py` (cylinder D = 1, channel [−8, 22] × [−8, 8], 11,382 triangles,
+96 faces on the cylinder), parameters above (`examples/cylinder_Re100.txt`).
 
 ```
 java -jar FlowPro.jar run -g skills/cylinder -s incRe100 > simulations/skills/cylinder/incRe100.log 2>&1
 python <flowpro-postprocessing>/scripts/forces.py simulations/skills/cylinder/incRe100/bodiesDynamic.txt --from 70
 ```
 
-Výsledek (ověřeno): 1200 kroků do t = 120, 48 min (12 vláken, ~2,4 s/krok), žádné selhání GMRES;
-nasycené periodické odtrhávání od t ≈ 40.
+Result (verified): 1200 steps to t = 120, 48 min (12 threads, ~2.4 s/step), no GMRES failure;
+saturated periodic shedding from t ≈ 40.
 
-| veličina | FlowPro (t ∈ [70, 120], 8 period) | literatura Re = 100 (neomezený proud) |
+| quantity | FlowPro (t ∈ [70, 120], 8 periods) | literature Re = 100 (unbounded flow) |
 |---|---|---|
-| Strouhalovo číslo | 0,170 | 0,164–0,166 |
-| střední c_D | 1,36 | 1,33–1,35 |
-| amplituda c_L | 0,326 | 0,32–0,33 |
+| Strouhal number | 0.170 | 0.164–0.166 |
+| mean c_D | 1.36 | 1.33–1.35 |
+| amplitude of c_L | 0.326 | 0.32–0.33 |
 
-Mírně vyšší St a c_D odpovídají zablokování kanálu D/H = 6 % (klouzavé boční stěny). Na rozdíl od stlačitelného
-modelu (`flowpro-navier-stokes`) je rychlost před tělesem přesně `VIn` (rychlostní vstup).
+The slightly higher St and c_D correspond to the channel blockage D/H = 6 % (slip side walls). Unlike the compressible
+model (`flowpro-navier-stokes`) the velocity upstream of the body is exactly `VIn` (velocity inlet).
 
-**`tEnd` a velmi krátký krok**: krok oříznutý na `tEnd` se u `BDFIncompressible` (BDF2 s poměrem kroků ≪ 1)
-projeví nesmyslným tlakem. FlowPro proto zbytek času pod 1e−6·dt (zaokrouhlení součtu kroků) nepočítá;
-`tEnd` nastavuj jako násobek `dt`, ne o kousek větší.
+**`tEnd` and a very short step**: a step cut by `tEnd` shows up in `BDFIncompressible` (BDF2 with a step ratio ≪ 1)
+as a nonsense pressure. FlowPro therefore does not compute a remainder below 1e−6·dt (round-off of the summed steps);
+set `tEnd` to a multiple of `dt`, not slightly more.
