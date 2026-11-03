@@ -1,0 +1,49 @@
+%%% turbulent flat plate, Re = 1e6 per unit length, M = 0.2, Spalart-Allmaras (verification: c_f)
+%%% boundary types: -1 plate (x in [0, 2]), -2 inlet, -3 outlet, -4 symmetry (x < 0) and top
+model = SpalartAllmaras
+results = mach, pressure, velocity, vorticity, temperature, mut
+dimension = 2
+reynolds = 1e6
+prandtl = 0.72
+lRef = 1
+cv = 1
+kappa = 1.4
+isInletSupersonic = false
+attackAngle = 0
+pIn0 = 1
+rhoIn0 = 1
+pOut = 0.97250   % M = 0.2
+
+vtIn = 3
+sigma = 0.6667
+cb1 = 0.1355
+cb2 = 0.622
+ka = 0.41
+cw2 = 0.3
+cw3 = 2
+cv1 = 7.1
+ct1 = 1
+ct2 = 2
+ct3 = 1.2
+ct4 = 0.5
+Prt = 0.9
+C_prod = 2
+
+continueComputation = false
+steps = 3000
+residuum = 1e-6
+saveRate = 200
+
+spatialMethod = DGpure
+timeMethod = BDF
+timeOrder = 1
+linearSolver = gmres
+preconditioner = ilu0
+order = 2
+CFL = 0
+maxCFL = 1000
+threads = 6
+newtonIters = 1
+penalty = 1
+dampTol = 0
+dampConst = 0

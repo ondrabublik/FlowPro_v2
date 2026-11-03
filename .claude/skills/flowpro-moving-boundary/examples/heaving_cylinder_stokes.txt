@@ -1,0 +1,42 @@
+%%% cylinder D = 1 heaving in a fluid at rest, y = A s(t) sin(w t), A = 0.05, w = 0.1, nu = 2e-4 (beta = 80, k R_out = 0.85)
+%%% verification of the moving mesh against the Stokes (1851) solution: added mass + viscous damping
+%%% boundary types: -1 cylinder (ALE 2 = body 1), -3 outer circle R = 10 (ALE 1 = fixed)
+model = NavierStokes
+results = mach, pressure, velocity, vorticity
+dimension = 2
+isFlowViscous = true
+viscosity = 2e-4        % dynamic viscosity in solver units (rho = 1): nu = 2e-4
+conductivity = 3.889e-4 % cp * viscosity / Pr = 1.4 * 2e-4 / 0.72
+lRef = 1
+cv = 1
+kappa = 1.4
+isInletSupersonic = false
+pIn0 = 1
+rhoIn0 = 1
+pOut = 1                % pOut = pIn0: fluid at rest
+
+continueComputation = false
+steps = 320   % 5 periods (t = steps * dt)
+tEnd = 314.65   % half a step more than steps * dt
+saveRate = 100
+
+spatialMethod = DGpure
+timeMethod = BDF
+timeOrder = 2
+dt = 0.9817477042468103    % T / 64
+linearSolver = gmres
+preconditioner = ilu0
+order = 3
+threads = 16
+newtonIters = 3
+newtonIterTol = 1e-3
+penalty = 1
+dampTol = 0
+dampConst = 0
+
+movingMesh = true
+dynamicsModel = Rigid2D
+meshDeformationType = Rigid2D
+rotationCenters = 0, 0
+% smooth start during the first period T = 20 pi (smoothstep), then A sin(w t)
+yMotion = 0.05*(t < 62.83185307179586 ? (t/62.83185307179586)*(t/62.83185307179586)*(3 - 2*t/62.83185307179586) : 1)*Math.sin(0.1*t)

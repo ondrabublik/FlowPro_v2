@@ -1,0 +1,42 @@
+%%% cylinder D = 1, Re = 100, M = 0.2, compressible laminar flow - vortex shedding (verification: St ~ 0.165)
+%%% boundary types: -1 cylinder (no-slip, adiabatic), -2 inlet, -3 outlet, -4 slip side walls
+model = NavierStokes
+results = mach, pressure, velocity, vorticity, temperature
+dimension = 2
+isFlowViscous = true
+reynolds = 100     % far-field Reynolds number, length lRef = D
+prandtl = 0.72
+lRef = 1
+cv = 1
+kappa = 1.4
+isInletSupersonic = false
+attackAngle = 0
+pIn0 = 1
+rhoIn0 = 1
+pOut = 0.97250     % M_inf = 0.2: pIn0/pOut = (1 + 0.2*M^2)^3.5
+
+continueComputation = false
+steps = 1000   % length of the run (t = steps * dt)
+tEnd = 400.2   % half a step more than steps * dt
+saveRate = 100
+
+spatialMethod = DGpure
+timeMethod = BDF
+timeOrder = 2
+dt = 0.4           % U_inf = 0.2357 -> period ~ 26 -> ~65 steps per period
+linearSolver = gmres
+preconditioner = ilu0
+order = 2
+threads = 12
+newtonIters = 3
+newtonIterTol = 1e-3
+penalty = 1
+dampTol = 0
+dampConst = 0
+
+%%% forces on the cylinder: moving-mesh machinery with a slow rotation kick (breaks the symmetry), then at rest
+movingMesh = true
+dynamicsModel = Rigid2D
+meshDeformationType = Rigid2D
+rotationCenters = 0, 0
+alphaMotion = t < 20 ? 0.5*(1 - Math.cos(Math.PI*t/20)) : 1

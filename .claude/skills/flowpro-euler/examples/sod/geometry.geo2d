@@ -1,0 +1,6 @@
+# shock tube [0,1] x [0,0.02], 200 x 4 quadrilaterals, inviscid walls
+vertex 0 0
+vertex 1 0
+vertex 1 0.02
+vertex 0 0.02
+block 0 1 2 3 200 4 1 1 -4 -4 -4 -4 0 0 0 0

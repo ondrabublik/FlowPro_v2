@@ -1,0 +1,31 @@
+%%% Sod shock tube - unsteady Euler equations, verification
+model = NavierStokes
+results = mach, pressure, velocity, density
+dimension = 2
+isFlowViscous = false
+cv = 1
+kappa = 1.4
+% inlet/outlet are not used (all boundaries -4), but the model requires them; they set the reference state
+isInletSupersonic = false
+pIn0 = 1
+rhoIn0 = 1
+pOut = 0.9
+
+continueComputation = false
+steps = 100000
+tEnd = 0.2
+saveRate = 1000
+
+spatialMethod = DGpure
+timeMethod = BDF
+timeOrder = 2
+order = 2
+dt = 1e-3
+linearSolver = gmres
+preconditioner = ilu0
+threads = 8
+newtonIters = 4
+newtonIterTol = 1e-4
+penalty = 1
+dampTol = 3
+dampConst = 0

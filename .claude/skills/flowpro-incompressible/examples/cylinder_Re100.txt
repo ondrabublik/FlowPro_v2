@@ -1,0 +1,38 @@
+%%% cylinder D = 1, Re = 100, incompressible laminar flow - vortex shedding (verification: St ~ 0.165)
+%%% boundary types: -1 cylinder, -2 inlet, -3 outlet, -4 slip side walls
+model = IncompressibleNavierStokes
+results = pressure, velocity, vorticity
+dimension = 2
+isFlowViscous = true
+viscosity = 0.01   % Re = |VIn| D / viscosity = 100
+density = 1
+VIn = 1, 0
+pOut = 0
+lRef = 1
+
+continueComputation = false
+steps = 1200   % length of the run (t = steps * dt)
+tEnd = 120.05   % half a step more than steps * dt (a step cut by tEnd to ~1e-12 spoils the pressure)
+saveRate = 200
+
+spatialMethod = DGpureIncompressible
+timeMethod = BDFIncompressible
+timeOrder = 2
+dt = 0.1
+linearSolver = gmres
+preconditioner = blockilu0
+order = 2
+threads = 12
+newtonIters = 3
+newtonIterTol = 1e-3
+iterativeSolverTol = 0.1   % GMRES(30) x 5 restarts does not reach 1e-2 for the incompressible system
+penalty = 1
+dampTol = 0
+dampConst = 0
+
+%%% forces on the cylinder: moving-mesh machinery with a short rotation kick (breaks the symmetry), then at rest
+movingMesh = true
+dynamicsModel = Rigid2D
+meshDeformationType = Rigid2D
+rotationCenters = 0, 0
+alphaMotion = t < 2 ? 0.1*(1 - Math.cos(Math.PI*t)) : 0   % rotation there and back during t < 2

@@ -125,6 +125,21 @@ every directory with a `build.gradle` automatically. Select the model in `parame
 on manufactured solutions, free-stream preservation on a deforming mesh, analytic Jacobians
 against finite differences and linear solvers against a direct solver.
 
+## Claude Code skills
+
+`.claude/skills` contains skills (in Czech) for [Claude Code](https://claude.com/claude-code) that describe
+how to set up, run and evaluate typical tasks, each verified on a test problem:
+
+| Skill | Task | Verification |
+|---|---|---|
+| `flowpro-mesh` | 2D meshes (`.geo2d`, batch mode, blocks, boundary types, ALE tags) | meshes of all the cases below |
+| `flowpro-euler` | unsteady compressible inviscid flow | Sod shock tube vs. exact solution |
+| `flowpro-navier-stokes` | unsteady compressible viscous flow | cylinder, Re = 100, M = 0.2 |
+| `flowpro-incompressible` | unsteady incompressible viscous flow | cylinder, Re = 100 |
+| `flowpro-turbulence` | RANS / URANS (Spalart–Allmaras, k-ω SST) | turbulent flat plate, skin friction |
+| `flowpro-moving-boundary` | moving and deforming meshes (ALE, rigid bodies) | cylinder oscillating in a fluid at rest vs. Stokes solution |
+| `flowpro-postprocessing` | running, monitoring, export, forces, Strouhal number | used by all the skills |
+
 ## Changes in version 2
 
 Version 2 fixes a number of bugs of the original code (Runge–Kutta stages, block ILU, adaptive CFL,
