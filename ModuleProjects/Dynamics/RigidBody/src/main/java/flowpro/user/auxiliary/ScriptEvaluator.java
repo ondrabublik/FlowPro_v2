@@ -19,6 +19,7 @@ public class ScriptEvaluator {
     
     public double eval(String expresion, double t) throws ScriptException {
         engine.put("t", t);
-        return (double)engine.eval(expresion);
+        // GraalJS returns integral values (e.g. Math.sin(0)) as Integer
+        return ((Number) engine.eval(expresion)).doubleValue();
     }
 }
